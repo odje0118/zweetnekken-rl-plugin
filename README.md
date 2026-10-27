@@ -15,6 +15,10 @@ RuneLite Plugin Hub project for Zweetnekken clan.
 - Automatic first-connection and 30-minute sync for every Combat Achievement task and all skill levels/XP.
 - Permanent Discord `/connect` code authentication using an `Authorization: Bearer` header.
 
+## Data and privacy
+
+The plugin communicates with the external Zweetnekken backend hosted on Railway. After you connect with a permanent link code, it sends the RuneScape display name and account identifier, eligible loot/event details, observed raid party/clan information, personal bests, skill levels/experience, and screenshots captured for eligible events. Screenshots may contain visible game UI and chat; the Hide private messages option is enabled by default. Event evidence may be forwarded to the Zweetnekken clan Discord for review. Only connect if you trust the Zweetnekken service and its operators.
+
 ## Local development
 
 ### Running locally

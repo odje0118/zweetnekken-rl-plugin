@@ -34,7 +34,7 @@ public class ZweetnekkenApiClient
 {
 	public static final String ZWEETNEKKEN_API_ORIGIN = "https://api-production-81001.up.railway.app";
 	private static final Logger log = LoggerFactory.getLogger(ZweetnekkenApiClient.class);
-	public static final String PLUGIN_VERSION = "1.1.41";
+	public static final String PLUGIN_VERSION = "1.1.42";
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 	private final OkHttpClient http;
 	private final Gson gson;

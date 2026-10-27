@@ -1,0 +1,70 @@
+plugins {
+	id 'java'
+}
+
+repositories {
+	mavenLocal()
+	maven {
+		url = 'https://repo.runelite.net'
+		content { includeGroupByRegex('net\\.runelite.*') }
+	}
+	mavenCentral()
+}
+
+def runeLiteVersion = providers.gradleProperty('runelite.version').orElse('latest.release').get()
+def pluginMainClass = 'com.zweetnekken.ZweetnekkenPluginLauncher'
+
+sourceSets {
+	dev {
+		compileClasspath += sourceSets.main.output
+		runtimeClasspath += sourceSets.main.output
+	}
+}
+
+dependencies {
+	compileOnly group: 'net.runelite', name: 'client', version: runeLiteVersion
+	compileOnly 'org.projectlombok:lombok:1.18.30'
+	annotationProcessor 'org.projectlombok:lombok:1.18.30'
+
+	devImplementation group: 'net.runelite', name: 'client', version: runeLiteVersion
+	devImplementation group: 'net.runelite', name: 'jshell', version: runeLiteVersion
+
+	testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+}
+
+group = 'com.zweetnekken'
+version = '1.1.41'
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+	options.release.set(11)
+}
+
+tasks.withType(Test).configureEach {
+	useJUnitPlatform()
+}
+
+tasks.register('run', JavaExec) {
+	classpath = sourceSets.dev.runtimeClasspath
+	mainClass = pluginMainClass
+	jvmArgs '-ea'
+	args '--developer-mode', '--debug'
+}
+
+tasks.register('shadowJar', Jar) {
+	dependsOn classes
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+	from sourceSets.main.output
+	from {
+		configurations.runtimeClasspath
+			.findAll { !it.name.toLowerCase().contains('runelite') && !it.name.startsWith('junit') }
+			.collect { it.isDirectory() ? it : zipTree(it) }
+	}
+	exclude 'META-INF/INDEX.LIST', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', '**/module-info.class'
+	from('LICENSE')
+	from('LICENSES') { into 'LICENSES' }
+	group = BasePlugin.BUILD_GROUP
+	archiveClassifier.set('shadow')
+	archiveFileName.set("${rootProject.name}-${project.version}-all.jar")
+}
+

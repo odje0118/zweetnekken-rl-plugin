@@ -1,0 +1,810 @@
+/*
+ * Party and shared-encounter tracking adapted from the Terpinheimer party tracker.
+ * See LICENSES/terpinheimer-LICENSE.txt.
+ */
+package com.zweetnekken.service;
+
+import com.zweetnekken.model.ZweetnekkenModels;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import net.runelite.api.Actor;
+import net.runelite.api.Client;
+import net.runelite.api.GameState;
+import net.runelite.api.NPC;
+import net.runelite.api.Player;
+import net.runelite.api.clan.ClanMember;
+import net.runelite.api.clan.ClanSettings;
+import net.runelite.api.events.ActorDeath;
+import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GameTick;
+import net.runelite.api.events.NpcSpawned;
+import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.widgets.Widget;
+import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.util.Text;
+
+@Singleton
+public class PartyTracker
+{
+	private static final Set<String> INDIVIDUAL_RAID_REWARDS = Set.of(
+		"olmlet", "lil' zik", "lil zik", "metamorphic dust", "twisted kit",
+		"twisted ancestral colour kit", "holy ornament kit", "sanguine ornament kit", "sanguine dust");
+	private static final int ENCOUNTER_IDLE_TICKS = 12;
+	private static final long RECENT_RAID_SOURCE_MILLIS = 15_000L;
+	private static final long COMPLETED_RAID_MILLIS = 10 * 60_000L;
+	private static final int TOA_MEMBER_NAME = 1099;
+	private static final int TOB_MEMBER_NAME = 330;
+	// RuneLite gamevals TFA_CLIENT_NAME0 and TFA_CLIENT_PARTYSTATUS.
+	// Numeric IDs keep compatibility with clients predating the generated constants.
+	private static final int TFA_MEMBER_NAME = 1573;
+	// Cache scripts 10034/10039: each nonzero state is an occupied raid-panel slot.
+	// 16386 is only the lobby button state (script 10047), not raid presence.
+	private static final int TFA_MEMBER_STATE = 16387;
+	private static final int TFA_ROSTER_CLEAR_TICKS = 10;
+
+	@Inject private Client client;
+	private NPC target;
+	private final Map<Player, Boolean> participants = new IdentityHashMap<>();
+	private int idleTicks;
+	private volatile String recentRaidSource;
+	private volatile long recentRaidSourceAt;
+	private String activeRaidSource;
+	private List<String> activeRaidNames = List.of();
+	private int activeRaidPartySize;
+	private String raidStatusSource;
+	private final Map<String, Boolean> raidPlayerClanStatus = new LinkedHashMap<>();
+	private ZweetnekkenModels.Party completedRaidParty;
+	private String completedRaidSource;
+	private List<String> completedRaidNames = List.of();
+	private final Map<String, Boolean> completedRaidClanStatus = new LinkedHashMap<>();
+	private long completedRaidAt;
+	private boolean awaitingCompletedRosterClear;
+	private int archiveEmptyTicks;
+
+	@Subscribe
+	public void onGameTick(GameTick event)
+	{
+		pollRaidRoster();
+		Player local = client.getLocalPlayer();
+		List<Player> instancePlayers = instancedWorldViewPlayers();
+		NPC current = local != null && local.getInteracting() instanceof NPC
+			? (NPC) local.getInteracting() : interactingNpc(client.getPlayers());
+		if (current == null) current = interactingNpc(instancePlayers);
+		if (current != null)
+		{
+			if (target != current) { target = current; participants.clear(); }
+			idleTicks = 0;
+			if (local != null) participants.put(local, Boolean.TRUE);
+			if (isYama(target) && !instancePlayers.isEmpty())
+			{
+				// Yama is instanced: every player in the local WorldView is in the
+				// encounter, including a duo partner who is not attacking on this tick.
+				for (Player player : instancePlayers)
+					if (player != null && player.getName() != null) participants.put(player, Boolean.TRUE);
+			}
+			else
+			{
+				for (Player player : client.getPlayers())
+					if (player != null && player.getInteracting() == target) participants.put(player, Boolean.TRUE);
+			}
+		}
+		else if (target != null && ++idleTicks > ENCOUNTER_IDLE_TICKS)
+		{
+			target = null; participants.clear(); idleTicks = 0;
+		}
+	}
+
+	/** Capture party state for the actual loot source; "Multi" means permitted, not assumed. */
+	public ZweetnekkenModels.Party snapshot(String sourceName)
+	{
+		return snapshot(sourceName, false);
+	}
+
+	/**
+	 * Some CoX/ToB rewards are awarded to the player who receives them rather
+	 * than split across the raid. Treat only those named rewards as solo for
+	 * submission metadata; ordinary raid loot still uses the full roster.
+	 */
+	public ZweetnekkenModels.Party snapshot(String sourceName, boolean individualAward)
+	{
+		if (individualAward) return fixedSoloParty();
+		if (!BossRegistry.canBeMulti(sourceName))
+		{
+			return fixedSoloParty();
+		}
+
+		if (BossRegistry.isRaid(sourceName))
+		{
+			observeRaidWorldView(sourceName);
+			if (raidKey(sourceName).equals("the fractured archive") && sameRaid(sourceName, activeRaidSource))
+			{
+				List<String> liveNames = raidNames(sourceName);
+				if (!liveNames.isEmpty() || archivePartyCount() > 0) updateActiveRaid(sourceName, liveNames);
+			}
+			ZweetnekkenModels.Party stored = storedRaidParty(sourceName);
+			if (stored != null)
+			{
+				return stored;
+			}
+			List<String> names = raidNames(sourceName);
+			int count = raidCount(sourceName, names.size());
+			if (count > 0 || !names.isEmpty())
+			{
+				ZweetnekkenModels.Party party = buildParty(Math.max(1, count), names, "raid_party", confidenceForRoster(count, names));
+				return party;
+			}
+			// A raid source without a trustworthy roster must not fall through to
+			// nearby-player detection or be treated as a confirmed solo encounter.
+			ZweetnekkenModels.Party party = buildParty(1, List.of(), "raid_party", "low");
+			return party;
+		}
+
+		if (isYamaSource(sourceName))
+		{
+			List<String> names = new ArrayList<>(yamaNames());
+			names.addAll(observedNames());
+			names = dedupe(names);
+			if (!names.isEmpty()) return buildParty(names.size(), names, "instance_party", "high");
+		}
+
+		List<String> observed = observedNames();
+		if (!observed.isEmpty()) return buildParty(observed.size(), observed, "boss_interaction", "medium");
+		return buildParty(1, localNameList(), "unknown", "low");
+	}
+
+	/** Completion chat proves the size even when roster detection is incomplete. */
+	public static ZweetnekkenModels.Party withCompletionSize(ZweetnekkenModels.Party observed, int teamSize)
+	{
+		if (observed != null && observed.detectedPartySize == teamSize) return observed;
+		ZweetnekkenModels.Party party = new ZweetnekkenModels.Party();
+		party.detectedPartySize = party.submittedPartySize = teamSize;
+		party.method = "raid_completion_chat";
+		// Preserve compatible observations without mutating the cached raid snapshot.
+		if (observed != null && observed.detectedClanMemberCount + observed.detectedNonClanMemberCount <= teamSize
+			&& observed.members.size() <= teamSize)
+		{
+			party.detectedClanMemberCount = party.submittedClanMemberCount = observed.detectedClanMemberCount;
+			party.detectedNonClanMemberCount = party.submittedNonClanMemberCount = observed.detectedNonClanMemberCount;
+			party.members.addAll(observed.members);
+			party.submittedMembers.addAll(observed.members);
+			party.clanMemberNames.addAll(observed.clanMemberNames);
+		}
+		return party;
+	}
+
+	public static boolean isIndividualRaidReward(String sourceName, String itemName)
+	{
+		if (sourceName == null || itemName == null) return false;
+		String source = BossRegistry.normalize(sourceName);
+		boolean chambers = source.startsWith("chambers of xeric") || source.startsWith("great olm");
+		boolean theatre = source.startsWith("theatre of blood") || source.startsWith("verzik vitur");
+		return (chambers || theatre) && INDIVIDUAL_RAID_REWARDS.contains(
+			itemName.trim().toLowerCase(Locale.ROOT));
+	}
+
+	@Subscribe
+	public void onActorDeath(ActorDeath event)
+	{
+		Actor actor = event.getActor();
+		if (!(actor instanceof NPC)) return;
+		String source = finalBossRaid(((NPC) actor).getName());
+		if (source == null) return;
+		// Ocellus has multiple NPC forms; only the final form proves completion.
+		if (raidKey(source).equals("the fractured archive") && ((NPC) actor).getId() != 16677) return;
+		observeRaidWorldView(source);
+		List<String> finalNames = raidNames(source);
+		if (!finalNames.isEmpty() || (raidKey(source).equals("the fractured archive") && archivePartyCount() > 0))
+			updateActiveRaid(source, finalNames);
+		List<String> confirmedNames = sameRaid(source, activeRaidSource) ? activeRaidNames : finalNames;
+		completedRaidSource = source;
+		completedRaidNames = List.copyOf(confirmedNames);
+		completedRaidClanStatus.clear();
+		completedRaidClanStatus.putAll(raidPlayerClanStatus);
+		Set<String> clanNames = clanMemberKeys(client.getClanSettings());
+		if (clanRosterReady(clanNames))
+			for (String name : confirmedNames)
+				completedRaidClanStatus.put(playerNameKey(name), clanNames.contains(playerNameKey(name)));
+		int detectedSize = Math.max(activeRaidPartySize, raidCount(source, confirmedNames.size()));
+		completedRaidParty = buildParty(detectedSize, confirmedNames,
+			"raid_party_final_boss", confidenceForRoster(detectedSize, confirmedNames));
+		completedRaidAt = System.currentTimeMillis();
+		activeRaidSource = null;
+		activeRaidNames = List.of();
+		activeRaidPartySize = 0;
+		awaitingCompletedRosterClear = true;
+	}
+
+	@Subscribe
+	public void onNpcSpawned(NpcSpawned event)
+	{
+		NPC npc = event.getNpc();
+		if (npc == null) return;
+		String source = firstBossRaid(npc.getName());
+		if (source == null || (activeRaidSource != null && !sameRaid(source, activeRaidSource))) return;
+		observeRaidWorldView(source);
+		List<String> names = raidNames(source);
+		if (names.isEmpty()) return;
+		awaitingCompletedRosterClear = false;
+		if (sameRaid(source, completedRaidSource)) clearCompletedRaid();
+		updateActiveRaid(source, names);
+	}
+
+	@Subscribe
+	public void onGameStateChanged(GameStateChanged event)
+	{
+		if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.HOPPING)
+		{
+			activeRaidSource = null;
+			activeRaidNames = List.of();
+			activeRaidPartySize = 0;
+			raidStatusSource = null;
+			raidPlayerClanStatus.clear();
+			archiveEmptyTicks = 0;
+			clearCompletedRaid();
+			awaitingCompletedRosterClear = false;
+			recentRaidSource = null;
+			recentRaidSourceAt = 0;
+		}
+	}
+
+	private static NPC interactingNpc(List<Player> players)
+	{
+		if (players == null) return null;
+		for (Player player : players)
+		{
+			if (player != null && player.getInteracting() instanceof NPC)
+				return (NPC) player.getInteracting();
+		}
+		return null;
+	}
+
+	/** Remember named raid loot before event filtering/deduplication so collection-log events share its category. */
+	public void observeSource(String sourceName)
+	{
+		if (!BossRegistry.isRaid(sourceName))
+		{
+			// Any subsequent non-raid loot is stronger evidence than the short
+			// delayed-notification window left by the previous raid reward.
+			recentRaidSource = null;
+			recentRaidSourceAt = 0;
+			return;
+		}
+		recentRaidSource = sourceName;
+		recentRaidSourceAt = System.currentTimeMillis();
+		if (sameRaid(sourceName, activeRaidSource)) activeRaidSource = sourceName;
+		if (sameRaid(sourceName, completedRaidSource)) completedRaidSource = sourceName;
+	}
+
+	/** Replace the synthetic Collection Log category when RuneLite just identified raid loot. */
+	public ZweetnekkenModels.Source resolveCollectionLogSource(ZweetnekkenModels.Source fallback)
+	{
+		String source = raidContextSource();
+		long age = System.currentTimeMillis() - recentRaidSourceAt;
+		boolean activeContext = source != null && sameRaid(source, activeRaidSource);
+		boolean completingContext = source != null && awaitingCompletedRosterClear
+			&& sameRaid(source, completedRaidSource) && completedRaidAt > 0
+			&& System.currentTimeMillis() - completedRaidAt <= COMPLETED_RAID_MILLIS;
+		boolean recentLootContext = source != null && sameRaid(source, recentRaidSource)
+			&& age >= 0 && age <= RECENT_RAID_SOURCE_MILLIS;
+		if (source != null && (activeContext || completingContext || recentLootContext))
+		{
+			ZweetnekkenModels.Source resolved = new ZweetnekkenModels.Source();
+			resolved.type = fallback == null ? "collection_log" : fallback.type;
+			resolved.id = fallback == null ? null : fallback.id;
+			resolved.name = source;
+			return resolved;
+		}
+		return fallback;
+	}
+
+	private void pollRaidRoster()
+	{
+		int archiveCount = archivePartyCount();
+		archiveEmptyTicks = archiveCount > 0 ? 0 : Math.min(TFA_ROSTER_CLEAR_TICKS, archiveEmptyTicks + 1);
+		if (sameRaid(activeRaidSource, "The Fractured Archive")
+			&& archiveEmptyTicks >= TFA_ROSTER_CLEAR_TICKS)
+		{
+			activeRaidSource = null;
+			activeRaidNames = List.of();
+			activeRaidPartySize = 0;
+		}
+		if (awaitingCompletedRosterClear && completedRosterCleared())
+		{
+			awaitingCompletedRosterClear = false;
+			raidStatusSource = null;
+			raidPlayerClanStatus.clear();
+		}
+
+		if (activeRaidSource != null)
+		{
+			observeRaidWorldView(activeRaidSource);
+			List<String> names = raidNames(activeRaidSource);
+			if (!names.isEmpty() || (raidKey(activeRaidSource).equals("the fractured archive") && archiveCount > 0))
+				updateActiveRaid(activeRaidSource, names);
+			return;
+		}
+
+		if (archiveCount > 0)
+		{
+			startPolledRaid("The Fractured Archive", raidNames("The Fractured Archive"));
+			return;
+		}
+		if (client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) > 0)
+		{
+			startPolledRaid("Chambers of Xeric", chambersNames());
+			return;
+		}
+		if (toaPartyCount() > 0)
+			startPolledRaid("Tombs of Amascut", varcNames(TOA_MEMBER_NAME, 8));
+	}
+
+	private void startPolledRaid(String source, List<String> names)
+	{
+		boolean occupiedArchive = raidKey(source).equals("the fractured archive") && archivePartyCount() > 0;
+		if ((names.isEmpty() && !occupiedArchive) || (awaitingCompletedRosterClear && sameRaid(source, completedRaidSource))) return;
+		if (sameRaid(source, completedRaidSource)) clearCompletedRaid();
+		observeRaidWorldView(source);
+		updateActiveRaid(source, names);
+	}
+
+	private boolean completedRosterCleared()
+	{
+		if (completedRaidSource == null) return true;
+		String source = BossRegistry.normalize(completedRaidSource);
+		if (source.startsWith("chambers of xeric"))
+			return client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 0;
+		if (source.startsWith("tombs of amascut"))
+			return toaPartyCount() == 0 || varcNames(TOA_MEMBER_NAME, 8).isEmpty();
+		if (source.startsWith("theatre of blood"))
+			return varcNames(TOB_MEMBER_NAME, 5).isEmpty();
+		if (source.equals("the fractured archive"))
+			return archiveEmptyTicks >= TFA_ROSTER_CLEAR_TICKS;
+		return true;
+	}
+
+	private void clearCompletedRaid()
+	{
+		completedRaidParty = null;
+		completedRaidSource = null;
+		completedRaidNames = List.of();
+		completedRaidClanStatus.clear();
+		completedRaidAt = 0;
+	}
+
+	private void updateActiveRaid(String source, List<String> names)
+	{
+		List<String> cleaned = dedupe(names);
+		if (sameRaid(source, activeRaidSource) && !raidKey(source).equals("the fractured archive"))
+		{
+			List<String> combined = new ArrayList<>(activeRaidNames);
+			combined.addAll(cleaned);
+			cleaned = dedupe(combined);
+		}
+		else
+		{
+			activeRaidPartySize = 0;
+			if (!sameRaid(source, raidStatusSource)) raidPlayerClanStatus.clear();
+			raidStatusSource = source;
+		}
+		// Named roster entries are the authoritative size. The CoX party-size
+		// varbit can briefly contain stale data while the instance is changing.
+		// Only use it later as a fallback when no names are available.
+		activeRaidPartySize = raidKey(source).equals("the fractured archive") ? raidCount(source, cleaned.size())
+			: Math.max(activeRaidPartySize, cleaned.size());
+		if (source.equals(activeRaidSource) && cleaned.equals(activeRaidNames)) return;
+		activeRaidSource = source;
+		activeRaidNames = cleaned;
+	}
+
+	private ZweetnekkenModels.Party storedRaidParty(String sourceName)
+	{
+		if (sameRaid(sourceName, activeRaidSource))
+		{
+			int size = Math.max(activeRaidPartySize, activeRaidNames.size());
+			return buildParty(size, activeRaidNames, "raid_party_entry",
+				confidenceForRoster(size, activeRaidNames));
+		}
+		if (completedRaidParty != null && completedRaidSource != null
+			&& sameRaid(sourceName, completedRaidSource)
+			&& System.currentTimeMillis() - completedRaidAt <= COMPLETED_RAID_MILLIS)
+		{
+			// Clan settings can finish loading after the final boss dies. Retain
+			// every raid name so those members can still be classified at loot time.
+			if (!completedRaidNames.isEmpty())
+				return buildParty(completedRaidParty.detectedPartySize, completedRaidNames,
+					completedRaidParty.method, confidenceForRoster(completedRaidParty.detectedPartySize, completedRaidNames),
+					completedRaidClanStatus);
+			return completedRaidParty;
+		}
+		return null;
+	}
+
+	private String raidContextSource()
+	{
+		if (activeRaidSource != null) return activeRaidSource;
+		if (awaitingCompletedRosterClear && completedRaidSource != null && completedRaidAt > 0
+			&& System.currentTimeMillis() - completedRaidAt <= COMPLETED_RAID_MILLIS) return completedRaidSource;
+		return recentRaidSourceAt > 0
+			&& System.currentTimeMillis() - recentRaidSourceAt <= RECENT_RAID_SOURCE_MILLIS
+			? recentRaidSource : null;
+	}
+
+	static String finalBossRaid(String name)
+	{
+		String value = BossRegistry.normalize(clean(name));
+		if (value.startsWith("great olm")) return "Chambers of Xeric";
+		if (value.equals("ocellus")) return "The Fractured Archive";
+		if (value.startsWith("verzik vitur")) return "Theatre of Blood";
+		if (value.startsWith("tumeken's warden") || value.startsWith("tumekens warden")) return "Tombs of Amascut";
+		return null;
+	}
+
+	static String firstBossRaid(String name)
+	{
+		String value = BossRegistry.normalize(clean(name));
+		if (value.startsWith("the maiden of sugadinti")) return "Theatre of Blood";
+		if (value.equals("archive guardian")) return "The Fractured Archive";
+		if (value.equals("akkha") || value.startsWith("ba ba") || value.startsWith("baba")
+			|| value.equals("kephri") || value.equals("zebak")) return "Tombs of Amascut";
+		return null;
+	}
+
+	private static boolean sameRaid(String left, String right)
+	{
+		return left != null && right != null && raidKey(left).equals(raidKey(right));
+	}
+
+	private static String raidKey(String source)
+	{
+		String value = BossRegistry.normalize(source);
+		if (value.startsWith("chambers of xeric")) return "chambers of xeric";
+		if (value.startsWith("theatre of blood")) return "theatre of blood";
+		if (value.startsWith("tombs of amascut")) return "tombs of amascut";
+		return value;
+	}
+
+	/** Kept for PB captures and callers without a loot source. */
+	public ZweetnekkenModels.Party snapshot() { return snapshot(null); }
+
+	private ZweetnekkenModels.Party fixedSoloParty()
+	{
+		Player local = client.getLocalPlayer();
+		List<MemberSnapshot> members = local == null || local.getName() == null
+			? List.of() : List.of(new MemberSnapshot(local.getName(), true));
+		return snapshotFromData(1, members, "fixed_solo", "high");
+	}
+
+	private ZweetnekkenModels.Party buildParty(int detectedSize, List<String> names, String method, String confidence)
+	{
+		return buildParty(detectedSize, names, method, confidence, raidPlayerClanStatus);
+	}
+
+	private ZweetnekkenModels.Party buildParty(int detectedSize, List<String> names, String method, String confidence,
+		Map<String, Boolean> observedClanStatus)
+	{
+		ClanSettings clan = client.getClanSettings();
+		Set<String> clanNames = clanMemberKeys(clan);
+		boolean clanRosterReady = clanRosterReady(clanNames);
+		List<MemberSnapshot> members = new ArrayList<>();
+		for (String name : dedupe(names))
+		{
+			// A missing/empty roster is an unknown state, not proof that a player
+			// is a guest. Once the full local clan roster is available, absence is
+			// a confirmed non-clan result.
+			Boolean observedStatus = (method.startsWith("raid_") || "instance_party".equals(method))
+				? observedClanStatus.get(playerNameKey(name)) : null;
+			// Prefer the complete clan-settings roster. The per-player flag is the
+			// fallback for raid members that are visible in the instance but whose
+			// names are not available in the settings lookup yet.
+			Boolean clanMember = clanRosterReady
+				? Boolean.valueOf(clanNames.contains(playerNameKey(name)))
+				: observedStatus;
+			members.add(new MemberSnapshot(name, clanMember));
+		}
+		boolean fullyClassified = !members.isEmpty() && members.size() == detectedSize
+			&& members.stream().allMatch(member -> member.clanMember != null);
+		return snapshotFromData(detectedSize, members, method, fullyClassified ? confidence : "low");
+	}
+
+	private Set<String> clanMemberKeys(ClanSettings clan)
+	{
+		Set<String> names = new HashSet<>();
+		if (clan == null || clan.getMembers() == null) return names;
+		for (ClanMember member : clan.getMembers())
+			if (member != null && member.getName() != null) names.add(playerNameKey(member.getName()));
+		return names;
+	}
+
+	private boolean clanRosterReady(Set<String> clanNames)
+	{
+		Player local = client.getLocalPlayer();
+		return !clanNames.isEmpty() && local != null && local.getName() != null
+			&& clanNames.contains(playerNameKey(local.getName()));
+	}
+
+	private static String playerNameKey(String name)
+	{
+		return clean(name).toLowerCase(Locale.ROOT).replace(" ", "").replace("_", "").replace("-", "");
+	}
+
+	private static String confidenceForRoster(int detectedSize, List<String> names)
+	{
+		return names != null && names.size() >= Math.max(1, detectedSize) ? "high" : "low";
+	}
+
+	static ZweetnekkenModels.Party snapshotFromData(int detectedSize, List<MemberSnapshot> members, String method, String confidence)
+	{
+		ZweetnekkenModels.Party party = new ZweetnekkenModels.Party();
+		party.detectedPartySize = party.submittedPartySize = Math.max(1, detectedSize);
+		party.method = method; party.confidence = confidence;
+		if (members != null)
+		{
+			for (MemberSnapshot member : members)
+			{
+				if (member == null || member.name == null || member.name.isBlank()) continue;
+
+				// Preserve every detected participant, not just confirmed clan members.
+				// A guest or unknown player still occupies a share in group loot; the
+				// clan/gast selector in Submissions can correct uncertain membership.
+				ZweetnekkenModels.PartyMember value = new ZweetnekkenModels.PartyMember();
+				value.name = member.name;
+				value.clanMember = member.clanMember;
+				party.members.add(value);
+				ZweetnekkenModels.PartyMember submitted = new ZweetnekkenModels.PartyMember();
+				submitted.name = value.name;
+				submitted.clanMember = value.clanMember;
+				party.submittedMembers.add(submitted);
+
+				if (Boolean.TRUE.equals(member.clanMember))
+				{
+					party.detectedClanMemberCount++;
+					if (party.detectedPartySize > 1) party.clanMemberNames.add(member.name);
+				}
+				else if (Boolean.FALSE.equals(member.clanMember))
+				{
+					party.detectedNonClanMemberCount++;
+				}
+			}
+		}
+		party.submittedClanMemberCount = party.detectedClanMemberCount;
+		party.submittedNonClanMemberCount = party.detectedNonClanMemberCount;
+		return party;
+	}
+
+	private List<String> raidNames(String sourceName)
+	{
+		String source = BossRegistry.normalize(sourceName);
+		if (source.startsWith("chambers of xeric")) return chambersNames();
+		if (source.startsWith("tombs of amascut")) return varcNames(TOA_MEMBER_NAME, 8);
+		if (source.startsWith("theatre of blood")) return varcNames(TOB_MEMBER_NAME, 5);
+		if (source.equals("the fractured archive")) return archiveNames();
+		return List.of();
+	}
+
+	/** Exact named roster or Archive occupied-slot count; never use the unknown-raid solo fallback for PBs. */
+	public Integer confirmedRaidTeamSize(String sourceName)
+	{
+		if (!BossRegistry.isRaid(sourceName)) return null;
+		if (raidKey(sourceName).equals("the fractured archive"))
+		{
+			int count = archivePartyCount();
+			if (count > 0) return count;
+		}
+		ZweetnekkenModels.Party stored = storedRaidParty(sourceName);
+		if (raidKey(sourceName).equals("the fractured archive") && activeRaidNames.isEmpty()
+			&& completedRaidNames.isEmpty()) return null;
+		if (stored != null) return stored.detectedPartySize;
+		List<String> names = raidNames(sourceName);
+		return names.isEmpty() ? null : names.size();
+	}
+
+	private int raidCount(String sourceName, int namedCount)
+	{
+		String source = BossRegistry.normalize(sourceName);
+		if (source.startsWith("chambers of xeric"))
+			return namedCount > 0 ? namedCount : client.getVarbitValue(VarbitID.RAIDS_CLIENT_PARTYSIZE);
+		if (source.startsWith("tombs of amascut"))
+			return namedCount > 0 ? namedCount : toaPartyCount();
+		if (source.equals("the fractured archive")) return Math.max(namedCount, archivePartyCount());
+		return namedCount;
+	}
+
+	private int archivePartyCount()
+	{
+		int count = 0;
+		for (int slot = 0; slot < 8; slot++)
+			if (client.getVarbitValue(TFA_MEMBER_STATE + slot) > 0) count++;
+		return count;
+	}
+
+	private List<String> archiveNames()
+	{
+		List<String> names = new ArrayList<>();
+		for (int slot = 0; slot < 8; slot++)
+		{
+			if (client.getVarbitValue(TFA_MEMBER_STATE + slot) == 0) continue;
+			String name = clean(client.getVarcStrValue(TFA_MEMBER_NAME + slot));
+			// Script 10039 treats empty and literal "null" as unnamed slots.
+			if (!name.isEmpty() && !name.equalsIgnoreCase("null") && !name.equals("-")) names.add(name);
+		}
+		return dedupe(names);
+	}
+
+	private int toaPartyCount()
+	{
+		return Math.min(client.getVarbitValue(VarbitID.TOA_CLIENT_P0), 1)
+				+ Math.min(client.getVarbitValue(VarbitID.TOA_CLIENT_P1), 1)
+				+ Math.min(client.getVarbitValue(VarbitID.TOA_CLIENT_P2), 1)
+				+ Math.min(client.getVarbitValue(VarbitID.TOA_CLIENT_P3), 1)
+				+ Math.min(client.getVarbitValue(VarbitID.TOA_CLIENT_P4), 1)
+				+ Math.min(client.getVarbitValue(VarbitID.TOA_CLIENT_P5), 1)
+				+ Math.min(client.getVarbitValue(VarbitID.TOA_CLIENT_P6), 1)
+				+ Math.min(client.getVarbitValue(VarbitID.TOA_CLIENT_P7), 1);
+	}
+
+	private List<String> chambersNames()
+	{
+		beginRaidStatus("Chambers of Xeric");
+		Widget list = client.getWidget(InterfaceID.RaidsSidepanel.LIST);
+		List<String> panelNames = new ArrayList<>();
+		collectChambersNames(list, panelNames);
+		// The local player's exact WorldView is the active raid instance. The
+		// side-panel names are retained as a fallback when that view is unavailable.
+		// Client.getPlayers() is the top-level view and may contain unrelated
+		// players while the local player is inside an instanced raid.
+		List<String> worldViewNames = new ArrayList<>();
+		Player local = client.getLocalPlayer();
+		if (local != null && local.getWorldView() != null && client.isInInstancedRegion())
+			for (Player player : local.getWorldView().players())
+				if (player != null && player.getName() != null)
+				{
+					worldViewNames.add(player.getName());
+					raidPlayerClanStatus.put(playerNameKey(player.getName()), player.isClanMember());
+				}
+		return dedupe(worldViewNames.isEmpty() ? panelNames : worldViewNames);
+	}
+
+	private List<String> yamaNames()
+	{
+		beginRaidStatus("Yama");
+		List<String> names = new ArrayList<>();
+		for (Player player : instancedWorldViewPlayers())
+			if (player != null && player.getName() != null)
+			{
+				names.add(player.getName());
+				raidPlayerClanStatus.put(playerNameKey(player.getName()), player.isClanMember());
+			}
+		return dedupe(names);
+	}
+
+	private List<Player> instancedWorldViewPlayers()
+	{
+		Player local = client.getLocalPlayer();
+		if (local == null || local.getWorldView() == null || !client.isInInstancedRegion()) return List.of();
+		List<Player> players = new ArrayList<>();
+		for (Player player : local.getWorldView().players()) players.add(player);
+		return players;
+	}
+
+	private void beginRaidStatus(String source)
+	{
+		if (!sameRaid(source, raidStatusSource))
+		{
+			raidPlayerClanStatus.clear();
+			raidStatusSource = source;
+		}
+	}
+
+	private void observeRaidWorldView(String source)
+	{
+		beginRaidStatus(source);
+		Player local = client.getLocalPlayer();
+		boolean archive = raidKey(source).equals("the fractured archive");
+		if (local == null || local.getWorldView() == null) return;
+		if (archive ? archivePartyCount() == 0 : !client.isInInstancedRegion()) return;
+		Set<String> rosterKeys = new HashSet<>();
+		if (archive)
+			for (String name : raidNames(source)) rosterKeys.add(playerNameKey(name));
+		for (Player player : local.getWorldView().players())
+			if (player != null && player.getName() != null)
+			{
+				String key = playerNameKey(player.getName());
+				if (archive && !rosterKeys.contains(key)) continue;
+				boolean clanMember = player.isClanMember();
+				raidPlayerClanStatus.put(key, clanMember);
+				if (sameRaid(source, completedRaidSource) && completedRaidNames.stream()
+					.anyMatch(name -> playerNameKey(name).equals(key)))
+					completedRaidClanStatus.put(key, clanMember);
+			}
+	}
+
+	static void collectChambersNames(Widget widget, List<String> names)
+	{
+		if (widget == null || names == null) return;
+		String name = clean(widget.getName());
+		String text = clean(widget.getText());
+		if (isPlayerName(text)) names.add(text);
+		else if (isPlayerName(name)) names.add(name);
+		Widget[] children = widget.getChildren();
+		if (children != null) for (Widget child : children) collectChambersNames(child, names);
+	}
+
+	private static boolean isPlayerName(String value)
+	{
+		if (value == null || value.isEmpty() || value.length() > 12) return false;
+		boolean letter = false;
+		for (int i = 0; i < value.length(); i++)
+		{
+			char c = value.charAt(i);
+			if (Character.isLetter(c)) letter = true;
+			else if (!Character.isDigit(c) && c != ' ' && c != '_') return false;
+		}
+		return letter;
+	}
+
+	private List<String> varcNames(int first, int count)
+	{
+		List<String> names = new ArrayList<>();
+		for (int i = 0; i < count; i++)
+		{
+			String name = clean(client.getVarcStrValue(first + i));
+			if (!name.isEmpty()) names.add(name);
+		}
+		return names;
+	}
+
+	private List<String> observedNames()
+	{
+		List<String> names = new ArrayList<>();
+		for (Player player : participants.keySet()) if (player != null && player.getName() != null) names.add(player.getName());
+		return dedupe(names);
+	}
+
+	private List<String> localNameList()
+	{
+		Player local = client.getLocalPlayer();
+		return local == null || local.getName() == null ? List.of() : List.of(local.getName());
+	}
+
+	private static List<String> dedupe(List<String> names)
+	{
+		Map<String, String> unique = new LinkedHashMap<>();
+		if (names != null) for (String name : names)
+		{
+			String clean = clean(name);
+			if (!clean.isEmpty()) unique.putIfAbsent(clean.toLowerCase(Locale.ROOT), clean);
+		}
+		return new ArrayList<>(unique.values());
+	}
+
+	private static String clean(String value)
+	{
+		return value == null ? "" : Text.removeTags(value).replace('\u00a0', ' ').trim();
+	}
+
+	private static boolean isYama(NPC npc)
+	{
+		return npc != null && isYamaSource(npc.getName());
+	}
+
+	private static boolean isYamaSource(String source)
+	{
+		return "yama".equals(BossRegistry.normalize(clean(source)));
+	}
+
+	static final class MemberSnapshot
+	{
+		final String name;
+		final Boolean clanMember;
+		MemberSnapshot(String name, Boolean clanMember) { this.name = name; this.clanMember = clanMember; }
+	}
+}

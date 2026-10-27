@@ -131,13 +131,17 @@ public class ZweetnekkenDataService
 					: currentPlayerCanSubmitLoot ? "Profile loaded" : "Trialist — loot submitten is niet beschikbaar";
 				if (currentPlayerPluginEligible)
 				{
-					String url = profile.member.avatarUrl;
-					if (url == null || url.isBlank()) url = profileImageUrl(requestedName);
-					images.loadProfile(requestedName, url, image ->
+					String avatarPath = profile.member.avatarUrl;
+					String url = resolveProfileImageUrl(avatarPath);
+					if (url == null) url = resolveProfileImageUrl(profileImagePath(requestedName));
+					if (url != null)
 					{
-						if (samePlayer(requestedPlayerName, requestedName) && image != null) profileImage = image;
-						notifyListeners();
-					});
+						images.loadProfile(requestedName, url, image ->
+						{
+							if (samePlayer(requestedPlayerName, requestedName) && image != null) profileImage = image;
+							notifyListeners();
+						});
+					}
 				}
 				else profile = null;
 			}
@@ -232,9 +236,19 @@ public class ZweetnekkenDataService
 		notifyListeners();
 	}
 
-	static String profileImageUrl(String playerName)
+	static String resolveProfileImageUrl(String relativePath)
 	{
-		return ZWEETNEKKEN_API_ORIGIN + "/api/profile-portrait?name="
+		if (relativePath == null || relativePath.isBlank()) return null;
+		String path = relativePath.trim();
+		// Profile avatar paths must stay on the configured Zweetnekken API origin.
+		// Never accept absolute or protocol-relative URLs from the API response.
+		if (!path.startsWith("/") || path.startsWith("//") || path.contains("://")) return null;
+		return ZWEETNEKKEN_API_ORIGIN + path;
+	}
+
+	static String profileImagePath(String playerName)
+	{
+		return "/api/profile-portrait?name="
 			+ URLEncoder.encode(playerName == null ? "" : playerName, StandardCharsets.UTF_8).replace("+", "%20");
 	}
 

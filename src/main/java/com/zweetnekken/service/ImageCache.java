@@ -7,8 +7,7 @@ package com.zweetnekken.service;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import net.runelite.client.util.Filepath;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.Locale;
@@ -21,7 +20,6 @@ import javax.imageio.stream.ImageInputStream;
 import javax.swing.ImageIcon;
 import javax.inject.Inject;
 import javax.inject.Singleton;
-import net.runelite.client.RuneLite;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.OkHttpClient;
@@ -34,31 +32,32 @@ import lombok.extern.slf4j.Slf4j;
 public class ImageCache
 {
 	private static final long PROFILE_TTL = Duration.ofHours(24).toMillis();
-	private final Path root = RuneLite.RUNELITE_DIR.toPath().resolve("zweetnekken").resolve("cache");
+	private final Filepath root;
 	private final OkHttpClient http;
 	private final ScheduledExecutorService executor;
 
 	@Inject
-	public ImageCache(OkHttpClient http, ScheduledExecutorService executor)
+	public ImageCache(OkHttpClient http, ScheduledExecutorService executor, Filepath pluginDirectory)
 	{
 		this.http = http.newBuilder().followRedirects(false).followSslRedirects(false).build();
 		this.executor = executor;
+		this.root = pluginDirectory.joinSegment("cache");
 	}
 
 	public void loadProfile(String rsn, String url, Consumer<BufferedImage> callback)
 	{
 		String urlKey = url == null ? "none" : Integer.toHexString(url.hashCode());
-		load(root.resolve("profiles").resolve(safeName(rsn) + "-" + urlKey + ".img"), url, PROFILE_TTL, false, callback);
+		load(root.join("profiles", safeName(rsn) + "-" + urlKey + ".img"), url, PROFILE_TTL, false, callback);
 	}
 
 	public void loadWebsiteImage(String key, String url, Consumer<BufferedImage> callback)
 	{
-		load(root.resolve("website-images").resolve(safeName(key) + ".img"), url, 0, true, callback);
+		load(root.join("website-images", safeName(key) + ".img"), url, 0, true, callback);
 	}
 
 	public void loadWebsiteImage(String key, String url, String fallbackUrl, Consumer<BufferedImage> callback)
 	{
-		Path target = root.resolve("website-images").resolve(safeName(key) + ".img");
+		Filepath target = root.join("website-images", safeName(key) + ".img");
 		load(target, url, 0, true, image ->
 		{
 			if (image != null) callback.accept(image);
@@ -66,17 +65,17 @@ public class ImageCache
 		});
 	}
 
-	private void load(Path target, String url, long ttl, boolean revalidate, Consumer<BufferedImage> callback)
+	private void load(Filepath target, String url, long ttl, boolean revalidate, Consumer<BufferedImage> callback)
 	{
 		executor.execute(() -> loadInBackground(target, url, ttl, revalidate, callback));
 	}
 
-	private void loadInBackground(Path target, String url, long ttl, boolean revalidate, Consumer<BufferedImage> callback)
+	private void loadInBackground(Filepath target, String url, long ttl, boolean revalidate, Consumer<BufferedImage> callback)
 	{
 		BufferedImage cached = read(target);
 		if (cached != null && !revalidate) callback.accept(cached);
 		boolean fresh = false;
-		try { fresh = ttl > 0 && Files.exists(target) && System.currentTimeMillis() - Files.getLastModifiedTime(target).toMillis() < ttl; }
+		try { fresh = ttl > 0 && target.exists() && System.currentTimeMillis() - target.getLastModifiedTime().toMillis() < ttl; }
 		catch (IOException ignored) { }
 		if (fresh || url == null || url.isBlank()) { if (cached == null || revalidate) callback.accept(null); return; }
 		Request request;
@@ -95,12 +94,12 @@ public class ImageCache
 				try (Response ignored = response)
 				{
 					if (!response.isSuccessful() || response.body() == null) { if (cached == null || revalidate) callback.accept(null); return; }
-					Files.createDirectories(target.getParent());
-					Path temp = target.resolveSibling(target.getFileName() + ".tmp");
-					Files.write(temp, response.body().bytes());
+					target.getParent().createDirectories();
+					Filepath temp = target.getParent().joinSegment(target.getFileName() + ".tmp");
+					temp.write(response.body().bytes());
 					BufferedImage downloaded = read(temp);
-					if (downloaded == null) { Files.deleteIfExists(temp); if (cached == null || revalidate) callback.accept(null); return; }
-					Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+					if (downloaded == null) { temp.deleteIfExists(); if (cached == null || revalidate) callback.accept(null); return; }
+					temp.moveTo(target, StandardCopyOption.REPLACE_EXISTING);
 					callback.accept(downloaded);
 				}
 				catch (IOException e) { if (cached == null || revalidate) callback.accept(null); }
@@ -114,11 +113,11 @@ public class ImageCache
 	 */
 	public void loadWebsiteIcon(String key, String url, Consumer<ImageIcon> callback)
 	{
-		Path target = root.resolve("website-images").resolve(safeName(key) + ".bin");
+		Filepath target = root.join("website-images", safeName(key) + ".bin");
 		executor.execute(() -> loadWebsiteIconInBackground(target, url, callback));
 	}
 
-	private void loadWebsiteIconInBackground(Path target, String url, Consumer<ImageIcon> callback)
+	private void loadWebsiteIconInBackground(Filepath target, String url, Consumer<ImageIcon> callback)
 	{
 		// Only display artwork downloaded from the current backend. Never render a stale banner cache.
 		if (url == null || url.isBlank()) { callback.accept(null); return; }
@@ -171,10 +170,10 @@ public class ImageCache
 					}
 					log.debug("Downloaded animated banner ({} frames, {} bytes, {}x{}, content-type: {}).",
 						frames, bytes.length, downloaded.getIconWidth(), downloaded.getIconHeight(), contentType);
-					Files.createDirectories(target.getParent());
-					Path temp = target.resolveSibling(target.getFileName() + ".tmp");
-					Files.write(temp, bytes);
-					Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+					target.getParent().createDirectories();
+					Filepath temp = target.getParent().joinSegment(target.getFileName() + ".tmp");
+					temp.write(bytes);
+					temp.moveTo(target, StandardCopyOption.REPLACE_EXISTING);
 					callback.accept(downloaded);
 				}
 				catch (IOException e)
@@ -245,20 +244,23 @@ public class ImageCache
 		});
 	}
 
-	private static void deleteChildren(Path path)
+	private static void deleteChildren(Filepath path)
 	{
-		if (!Files.exists(path)) return;
-		try (java.util.stream.Stream<Path> stream = Files.walk(path))
+		if (!path.exists()) return;
+		try (java.util.stream.Stream<Filepath> stream = path.walk())
 		{
-			stream.sorted(java.util.Comparator.reverseOrder()).filter(p -> !p.equals(path)).forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) { } });
+			stream.sorted(java.util.Comparator.reverseOrder())
+				.filter(p -> !p.equals(path))
+				.forEach(p -> { try { p.deleteIfExists(); } catch (IOException ignored) { } });
 		}
 		catch (IOException ignored) { }
 	}
 
-	private static BufferedImage read(Path path)
+	private static BufferedImage read(Filepath path)
 	{
-		if (!Files.isRegularFile(path)) return null;
-		try { return ImageIO.read(path.toFile()); } catch (IOException e) { return null; }
+		if (!path.isFile()) return null;
+		try (var input = path.openInputStream()) { return ImageIO.read(input); }
+		catch (IOException e) { return null; }
 	}
 
 	public static String safeName(String value)

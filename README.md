@@ -29,4 +29,4 @@ The production API origin is `https://api-production-81001.up.railway.app`, serv
 
 The API routes and request/response responsibilities are documented in [docs/api-contract.md](docs/api-contract.md).
 
-Evidence and caches are stored under `.runelite/zweetnekken`. Authentication codes are stored only in RuneLite configuration and are never written into evidence metadata or logs.
+Evidence and caches are stored under RuneLite's plugin data directory (`.runelite/plugin-data/zweetnekken`). Existing data in the legacy `.runelite/zweetnekken` directory is migrated automatically by RuneLite. Authentication codes are stored only in RuneLite configuration and are never written into evidence metadata or logs.

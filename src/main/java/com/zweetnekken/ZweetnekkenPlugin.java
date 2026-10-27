@@ -22,6 +22,7 @@ import com.zweetnekken.service.PartyTracker;
 import com.zweetnekken.ui.ZweetnekkenPanel;
 import com.zweetnekken.ui.BingoEventOverlay;
 import com.zweetnekken.ui.EventAlertOverlay;
+import java.io.IOException;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
@@ -46,12 +47,15 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.util.Filepath;
 
 @Slf4j
 @PluginDescriptor(
 	name = "Zweetnekken",
 	description = "Zweetnekken clan dashboard, evidence capture, loot submissions, and PB sync",
-	tags = {"clan", "loot", "pvm", "personal best", "collection log", "pet"}
+	tags = {"clan", "loot", "pvm", "personal best", "collection log", "pet"},
+	internalName = "zweetnekken",
+	legacyDataDirectory = "zweetnekken"
 )
 public class ZweetnekkenPlugin extends Plugin
 {
@@ -95,6 +99,8 @@ public class ZweetnekkenPlugin extends Plugin
 	private final Runnable connectionListener = () -> clientThread.invokeLater(this::updateFeatureActivation);
 
 	@Provides ZweetnekkenConfig provideConfig(ConfigManager manager) { return manager.getConfig(ZweetnekkenConfig.class); }
+
+	@Provides Filepath providePluginDirectory() throws IOException { return getPluginDirectory(); }
 
 	@Override protected void startUp()
 	{

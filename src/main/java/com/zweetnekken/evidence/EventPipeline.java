@@ -7,7 +7,7 @@ import com.zweetnekken.service.BossRegistry;
 import com.zweetnekken.service.PartyTracker;
 import com.zweetnekken.service.RulesService;
 import com.zweetnekken.service.ZweetnekkenDataService;
-import java.nio.file.Path;
+import net.runelite.client.util.Filepath;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -224,8 +224,16 @@ public class EventPipeline
 			return;
 		}
 		record.status = ZweetnekkenModels.EventStatus.UPLOADING; record.error = null; record.updatedAt = Instant.now().toString(); persist(record);
-		Path screenshot = record.screenshotPath == null || record.screenshotPath.isBlank()
-			? null : Path.of(record.screenshotPath);
+		Filepath screenshot = record.screenshotPath == null || record.screenshotPath.isBlank()
+			? null : store.resolveScreenshot(record.screenshotPath);
+		if (record.screenshotPath != null && !record.screenshotPath.isBlank() && screenshot == null)
+		{
+			record.status = ZweetnekkenModels.EventStatus.FAILED;
+			record.error = "Local evidence screenshot is unavailable";
+			record.updatedAt = Instant.now().toString();
+			persist(record);
+			return;
+		}
 		executor.execute(() -> api.uploadEvent(record.metadata, screenshot, record.format, result ->
 		{
 			if (result.isSuccessful() && result.value != null)

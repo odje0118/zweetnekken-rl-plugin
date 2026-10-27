@@ -36,7 +36,6 @@ import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
-import java.nio.file.Path;
 import java.text.NumberFormat;
 import java.time.Duration;
 import java.time.Instant;
@@ -1085,7 +1084,12 @@ public class ZweetnekkenPanel extends PluginPanel {
 
 	private void showProof(EvidenceStore.Record record) {
 		try {
-			BufferedImage image = ImageIO.read(Path.of(record.screenshotPath).toFile());
+			var screenshot = evidence.resolveScreenshot(record.screenshotPath);
+			if (screenshot == null) throw new IllegalArgumentException("Evidence file is unavailable");
+			BufferedImage image;
+			try (var input = screenshot.openInputStream()) {
+				image = ImageIO.read(input);
+			}
 			if (image == null)
 				throw new IllegalArgumentException("Unsupported evidence image");
 			Window owner = SwingUtilities.getWindowAncestor(this);

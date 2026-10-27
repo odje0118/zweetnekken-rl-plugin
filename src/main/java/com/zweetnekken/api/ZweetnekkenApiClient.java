@@ -11,8 +11,8 @@ import com.zweetnekken.model.EventAlert;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.InputStream;
+import net.runelite.client.util.Filepath;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
@@ -109,7 +109,7 @@ public class ZweetnekkenApiClient
 		get("/api/runelite/event-alerts", false, EventAlert.class, callback);
 	}
 
-	public void uploadEvent(ZweetnekkenModels.EventEnvelope metadata, Path screenshot, String format,
+	public void uploadEvent(ZweetnekkenModels.EventEnvelope metadata, Filepath screenshot, String format,
 		ResultCallback<ZweetnekkenModels.EventResponse> callback)
 	{
 		try
@@ -117,12 +117,15 @@ public class ZweetnekkenApiClient
 			String metadataJson = gson.toJson(metadata);
 			MultipartBody.Builder bodyBuilder = new MultipartBody.Builder().setType(MultipartBody.FORM)
 				.addFormDataPart("metadata", null, RequestBody.create(JSON, metadataJson));
-			long screenshotBytes = 0;
 			if (screenshot != null)
 			{
-				screenshotBytes = Files.size(screenshot);
+				byte[] screenshotBytes;
+				try (InputStream input = screenshot.openInputStream())
+				{
+					screenshotBytes = input.readAllBytes();
+				}
 				MediaType imageType = MediaType.parse("image/" + ("jpg".equals(format) ? "jpeg" : format));
-				bodyBuilder.addFormDataPart("screenshot", screenshot.getFileName().toString(), RequestBody.create(imageType, screenshot.toFile()));
+				bodyBuilder.addFormDataPart("screenshot", screenshot.getFileName(), RequestBody.create(imageType, screenshotBytes));
 			}
 			MultipartBody body = bodyBuilder.build();
 			execute(newRequest("/api/runelite/events", true).post(body).build(),

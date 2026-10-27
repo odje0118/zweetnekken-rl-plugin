@@ -11,7 +11,7 @@ public interface ZweetnekkenConfig extends Config
 {
 	String GROUP = "zweetnekken";
 
-	@ConfigSection(name = "Authentication", description = "Connect Zweetnekken to Discord", position = 0)
+	@ConfigSection(name = "Authentication", description = "Connects to the external Zweetnekken backend. The plugin sends your RSN/account identifier, loot and event details, party/clan data, personal bests, skill levels/XP, and full-client evidence screenshots. Screenshots may include visible game UI/chat and may be forwarded to the Zweetnekken Discord for review.", position = 0)
 	String AUTH = "authentication";
 
 	@ConfigSection(name = "Evidence", description = "Screenshot and upload behavior", position = 1)
@@ -27,7 +27,7 @@ public interface ZweetnekkenConfig extends Config
 	String BINGO_OVERLAY = "bingoOverlay";
 
 	@ConfigItem(keyName = "authenticationCode", name = "Permanent link code",
-		description = "Ask staff to use /linkplugin in Zweetnekken Discord, then paste the permanent code here",
+		description = "Use /linkplugin in Zweetnekken Discord and paste the code here. This connects to the external Zweetnekken backend; RSN/account, loot/events, party/clan data, PBs, skill levels/XP, and evidence screenshots are sent. Screenshots may be forwarded to clan Discord for review.",
 		section = AUTH, position = 0, secret = true)
 	default String authenticationCode() { return ""; }
 

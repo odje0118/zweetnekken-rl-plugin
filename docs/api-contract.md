@@ -13,10 +13,11 @@ Authenticated requests use `Authorization: Bearer <code>`. Never place `DISCORD_
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/clan/profile?name=RSN` | Clan membership, PvM/clan points, rank progress, available competition standings. Public roster lookup. |
+| GET | `/api/clan/profile?name=RSN` | Clan membership, PvM/clan points, rank progress, available competition standings. `member.avatarUrl` is a relative path on the backend origin. Public roster lookup. |
 | GET | `/api/competitions` | Current, upcoming and previous SOTW/BOTW/ROTM competitions. |
 | GET | `/api/competitions/panels` | Compact dashboard panels and leading participants. |
 | GET | `/api/profile-portrait?name=RSN` | Player portrait proxy through the Zweetnekken backend. |
+| GET | `/api/clan/member-avatar?discordId=DiscordID` | Proxied Discord avatar for a roster member. Profile avatar paths must be prefixed with `ZweetnekkenApiClient.ZWEETNEKKEN_API_ORIGIN`; external avatar URLs are not returned by the profile API. |
 | GET | `/zweetnekken-banner.jpg` | Public current clan banner used by the RuneLite side panel. |
 | GET | `/botw.png` | Generated Boss of the Week banner based on the backend competition snapshot. |
 | GET | `/sotw.png` | Generated Skill of the Week banner based on the backend competition snapshot. |

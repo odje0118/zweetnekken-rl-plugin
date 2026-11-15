@@ -5,6 +5,7 @@
 package com.zweetnekken.api;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.zweetnekken.ZweetnekkenConfig;
 import com.zweetnekken.model.ZweetnekkenModels;
 import com.zweetnekken.model.EventAlert;
@@ -107,6 +108,11 @@ public class ZweetnekkenApiClient
 	public void getEventAlert(ResultCallback<EventAlert> callback)
 	{
 		get("/api/runelite/event-alerts", false, EventAlert.class, callback);
+	}
+
+	public void getTileRaceStandings(ResultCallback<JsonObject> callback)
+	{
+		get("/api/runelite/tile-race/standings", true, JsonObject.class, callback);
 	}
 
 	public void uploadEvent(ZweetnekkenModels.EventEnvelope metadata, Filepath screenshot, String format,

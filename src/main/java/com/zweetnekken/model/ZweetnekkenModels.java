@@ -178,6 +178,30 @@ public final class ZweetnekkenModels
 		public boolean finalizeSubmission = true;
 	}
 
+	/** Generic event-panel view model, populated by the event-specific services. */
+	public static final class EventPanelEvent
+	{
+		public String name;
+		public List<EventPanelEntry> entries = new ArrayList<>();
+	}
+
+	public static final class EventPanelEntry
+	{
+		public int rank;
+		public String label;
+		public String value;
+		public double progress;
+
+		public EventPanelEntry() { }
+		public EventPanelEntry(int rank, String label, String value, double progress)
+		{
+			this.rank = rank;
+			this.label = label;
+			this.value = value;
+			this.progress = progress;
+		}
+	}
+
 	public enum EventStatus { PENDING, UPLOADING, DRAFT, SUBMITTED, APPROVED, REJECTED, FAILED }
 
 	public static final class EventEnvelope

@@ -19,6 +19,7 @@ import com.zweetnekken.service.BingoService;
 import com.zweetnekken.service.EventAlertService;
 import com.zweetnekken.service.ImageCache;
 import com.zweetnekken.service.PartyTracker;
+import com.zweetnekken.service.TileRaceService;
 import com.zweetnekken.ui.ZweetnekkenPanel;
 import com.zweetnekken.ui.BingoEventOverlay;
 import com.zweetnekken.ui.EventAlertOverlay;
@@ -80,6 +81,7 @@ public class ZweetnekkenPlugin extends Plugin
 	@Inject private PersonalBestService pbs;
 	@Inject private PlayerProgressService progress;
 	@Inject private EventAlertService eventAlerts;
+	@Inject private TileRaceService tileRace;
 	@Inject private EventAlertOverlay eventAlertOverlay;
 	@Inject private BingoEventOverlay bingoEventOverlay;
 	@Inject private PartyTracker parties;
@@ -92,6 +94,7 @@ public class ZweetnekkenPlugin extends Plugin
 	private ScheduledFuture<?> refreshTask;
 	private ScheduledFuture<?> progressTask;
 	private ScheduledFuture<?> eligibilityRefreshTask;
+	private ScheduledFuture<?> tileRaceRefreshTask;
 	private List<Object> registered;
 	private volatile boolean featuresActive;
 	private String firstConnectionSyncedAccount;
@@ -106,13 +109,21 @@ public class ZweetnekkenPlugin extends Plugin
 	{
 		panel.refreshBanner();
 		navigation = NavigationButton.builder().tooltip("Zweetnekken").icon(loadIcon()).priority(5).panel(panel).build(); toolbar.addNavigation(navigation);
+		panel.setEventPanelVisible(client.getGameState() == GameState.LOGGED_IN);
 		overlayManager.add(eventAlertOverlay);
 		overlayManager.add(bingoEventOverlay);
 		registered = Arrays.asList(parties, loot, weaponCreation, collectionLog, pets, combatTiers, pbs);
 		data.addListener(connectionListener);
 		data.validate();
 		executor.execute(() -> evidence.pruneUploaded(config.retentionDays()));
-		if (client.getGameState() == GameState.LOGGED_IN) onLoggedIn();
+		if (client.getGameState() == GameState.LOGGED_IN)
+		{
+			onLoggedIn();
+			tileRace.refresh();
+		}
+		tileRaceRefreshTask = executor.scheduleAtFixedRate(() -> {
+			if (client.getGameState() == GameState.LOGGED_IN) tileRace.refresh();
+		}, 1, 1, TimeUnit.HOURS);
 		refreshTask = executor.scheduleAtFixedRate(this::runScheduledRefresh,
 			PROFILE_AND_COMPETITIONS_REFRESH_MINUTES,
 			PROFILE_AND_COMPETITIONS_REFRESH_MINUTES,
@@ -132,6 +143,7 @@ public class ZweetnekkenPlugin extends Plugin
 		if (refreshTask != null) { refreshTask.cancel(false); refreshTask = null; }
 		if (progressTask != null) { progressTask.cancel(false); progressTask = null; }
 		if (eligibilityRefreshTask != null) { eligibilityRefreshTask.cancel(false); eligibilityRefreshTask = null; }
+		if (tileRaceRefreshTask != null) { tileRaceRefreshTask.cancel(false); tileRaceRefreshTask = null; }
 		deactivateFeatures();
 		registered = null;
 		data.removeListener(connectionListener);
@@ -147,8 +159,11 @@ public class ZweetnekkenPlugin extends Plugin
 
 	@Subscribe public void onGameStateChanged(GameStateChanged event)
 	{
+		boolean loggedIn = event.getGameState() == GameState.LOGGED_IN;
+		panel.setEventPanelVisible(loggedIn);
 		if (event.getGameState() == GameState.LOGIN_SCREEN)
 		{
+			tileRace.clear();
 			eventAlerts.resetStateForLoginScreen();
 		}
 		else if (event.getGameState() == GameState.HOPPING
@@ -156,7 +171,11 @@ public class ZweetnekkenPlugin extends Plugin
 		{
 			eventAlerts.resetStateForWorldHopOrLogin();
 		}
-		if (event.getGameState() == GameState.LOGGED_IN) tryOnLoggedIn();
+		if (event.getGameState() == GameState.LOGGED_IN)
+		{
+			tileRace.refresh();
+			tryOnLoggedIn();
+		}
 		else if (event.getGameState() == GameState.LOGIN_SCREEN)
 		{
 			deactivateFeatures();
@@ -181,7 +200,7 @@ public class ZweetnekkenPlugin extends Plugin
 			case "authenticationCode": firstConnectionSyncedAccount = null; data.validate(); updateFeatureActivation(); break;
 			case "eventAlerts": eventAlerts.resetStateForConfigChange(); break;
 			case "animatedBanner": panel.refreshBanner(); break;
-			case "refreshProfile": if (Boolean.parseBoolean(event.getNewValue())) { refreshCurrentPlayer(); resetAction(event.getKey()); } break;
+			case "refreshProfile": if (Boolean.parseBoolean(event.getNewValue())) { refreshCurrentPlayer(); if (client.getGameState() == GameState.LOGGED_IN) tileRace.refresh(); resetAction(event.getKey()); } break;
 			case "retryOutbox": if (Boolean.parseBoolean(event.getNewValue())) { if (featuresActive) pipeline.retryAll(); resetAction(event.getKey()); } break;
 			case "clearImageCache": if (Boolean.parseBoolean(event.getNewValue())) { panel.invalidateBannerLoads(); resetAction(event.getKey()); imageCache.clear(() -> clientThread.invokeLater(() -> { refreshCurrentPlayer(); panel.refreshBanner(); })); } break;
 			default: break;

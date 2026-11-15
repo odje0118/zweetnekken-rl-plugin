@@ -10,6 +10,7 @@ import com.zweetnekken.evidence.EventPipeline;
 import com.zweetnekken.evidence.EvidenceStore;
 import com.zweetnekken.model.ZweetnekkenModels;
 import com.zweetnekken.service.ZweetnekkenDataService;
+import com.zweetnekken.service.TileRaceService;
 import com.zweetnekken.service.ImageCache;
 import com.zweetnekken.api.ZweetnekkenApiClient;
 import java.awt.BorderLayout;
@@ -87,7 +88,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 	private static final Color CLAN_ACCENT = new Color(194, 83, 80);
 	private static final Color PRIMARY_BUTTON_BG = new Color(143, 57, 54);
 	private static final Color SCORE_COLOR = Color.WHITE;
-	private static final int NAV_BUTTON_HEIGHT = 27;
+	static final int NAV_BUTTON_HEIGHT = 27;
 	private static final Color[] RANK_COLORS = {
 			Color.WHITE, new Color(185, 195, 204), new Color(190, 126, 75)
 	};
@@ -99,6 +100,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 	private final ConfigManager configManager;
 	private final SpriteManager spriteManager;
 	private final ItemManager itemManager;
+	private final TileRaceService tileRace;
 	private final Runnable dataListener = this::refreshOnEdt;
 	private final AtomicBoolean refreshQueued = new AtomicBoolean();
 	private final AtomicLong bannerRefreshGeneration = new AtomicLong();
@@ -110,6 +112,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 	private final JLabel status = muted("");
 	private final JLabel connectionDot = new JLabel();
 	private final JPanel home = verticalPanel();
+	private final EventPanel eventPanel;
 	private final JPanel submissions = verticalPanel();
 	private final CardLayout contentCards = new CardLayout();
 	private final JPanel contentPanel = new JPanel(contentCards);
@@ -125,7 +128,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 	@Inject
 	public ZweetnekkenPanel(ZweetnekkenDataService data, EvidenceStore evidence, EventPipeline pipeline,
 			ZweetnekkenConfig config, ConfigManager configManager, SpriteManager spriteManager, ItemManager itemManager,
-			ImageCache imageCache) {
+			ImageCache imageCache, TileRaceService tileRace) {
 		super(false);
 		this.data = data;
 		this.imageCache = imageCache;
@@ -135,6 +138,10 @@ public class ZweetnekkenPanel extends PluginPanel {
 		this.configManager = configManager;
 		this.spriteManager = spriteManager;
 		this.itemManager = itemManager;
+		this.tileRace = tileRace;
+		this.eventPanel = new EventPanel(tileRace::currentEvents);
+		this.eventPanel.setVisible(false);
+		tileRace.addListener(this::refreshEventPanel);
 		setLayout(new BorderLayout());
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
 		setBorder(null);
@@ -379,6 +386,19 @@ public class ZweetnekkenPanel extends PluginPanel {
 		});
 	}
 
+	private void refreshEventPanel() { eventPanel.refresh(); }
+
+	public void setEventPanelVisible(boolean visible) {
+		Runnable update = () -> {
+			eventPanel.setVisible(visible);
+			if (visible) eventPanel.refresh();
+			home.revalidate();
+			home.repaint();
+		};
+		if (SwingUtilities.isEventDispatchThread()) update.run();
+		else SwingUtilities.invokeLater(update);
+	}
+
 	public void refreshBanner() {
 		long requestId = bannerRefreshGeneration.incrementAndGet();
 		if (config.animatedBanner()) {
@@ -523,6 +543,8 @@ public class ZweetnekkenPanel extends PluginPanel {
 		home.add(competition("SOTW", competitions == null ? null : competitions.sotw,
 				authRequired ? data.unauthenticatedSotwImage() : data.sotwImage(),
 				standings == null ? null : standings.sotwRank, playerName, sotwExpanded));
+		home.add(Box.createVerticalStrut(8));
+		home.add(eventPanel);
 	}
 
 	static boolean requiresCompetitionAuthentication(ZweetnekkenDataService.Connection connection) {
@@ -533,12 +555,8 @@ public class ZweetnekkenPanel extends PluginPanel {
 	private JPanel competition(String kind, ZweetnekkenModels.CompetitionPanel competition, BufferedImage image,
 			ZweetnekkenModels.CompetitionRank playerRank, String playerName, boolean expanded) {
 		JPanel card = card();
-		JButton toggle = actionButton((expanded ? "▾ " : "▸ ") + kind, false);
-		toggle.setHorizontalAlignment(SwingConstants.LEFT);
-		toggle.setToolTipText(expanded ? "Collapse " + kind : "Expand " + kind);
+		JButton toggle = sectionToggleButton(kind, expanded);
 		toggle.addActionListener(e -> toggleCompetition(kind));
-		toggle.setAlignmentX(Component.LEFT_ALIGNMENT);
-		toggle.setMaximumSize(new Dimension(Integer.MAX_VALUE, NAV_BUTTON_HEIGHT));
 		card.add(toggle);
 		if (!expanded)
 			return card;
@@ -1020,7 +1038,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 		return panel;
 	}
 
-	private static JButton actionButton(String text, boolean primary) {
+	static JButton actionButton(String text, boolean primary) {
 		JButton button = new JButton(text);
 		button.setForeground(primary ? TAB_ACTIVE_FG : new Color(205, 208, 211));
 		button.setFont(button.getFont().deriveFont(Font.BOLD, 11f));
@@ -1051,6 +1069,17 @@ public class ZweetnekkenPanel extends PluginPanel {
 			}
 		});
 		return button;
+	}
+
+	static JButton sectionToggleButton(String title, boolean expanded) {
+		JButton toggle = actionButton((expanded ? "▾ " : "▸ ") + title, false);
+		// Keep all collapsible section headings in RuneScape's bold pixel font.
+		toggle.setFont(net.runelite.client.ui.FontManager.getRunescapeBoldFont().deriveFont(11f));
+		toggle.setHorizontalAlignment(SwingConstants.LEFT);
+		toggle.setToolTipText(expanded ? "Collapse " + title : "Expand " + title);
+		toggle.setAlignmentX(Component.LEFT_ALIGNMENT);
+		toggle.setMaximumSize(new Dimension(Integer.MAX_VALUE, NAV_BUTTON_HEIGHT));
+		return toggle;
 	}
 
 	private static JLabel statusBadge(ZweetnekkenModels.EventStatus status) {
@@ -1107,7 +1136,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 		}
 	}
 
-	private static JPanel verticalPanel() {
+	static JPanel verticalPanel() {
 		JPanel panel = new JPanel();
 		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -1203,7 +1232,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 		return label;
 	}
 
-	private static JLabel muted(String text) {
+	static JLabel muted(String text) {
 		JLabel label = new JLabel(html("<span style='color:#aaaaaa'>" + esc(text) + "</span>"));
 		label.setForeground(Color.LIGHT_GRAY);
 		label.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -1231,7 +1260,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 		return p;
 	}
 
-	private static JLabel sectionHeading(String text) {
+	static JLabel sectionHeading(String text) {
 		JLabel heading = new JLabel(text);
 		heading.setForeground(new Color(155, 158, 161));
 		heading.setFont(heading.getFont().deriveFont(Font.BOLD, 12f));
@@ -1307,6 +1336,11 @@ public class ZweetnekkenPanel extends PluginPanel {
 
 	private static JPanel leaderRow(int rank, String name, String score, double progress, Color accent,
 			boolean highlighted) {
+		return leaderRow(rank, name, score, progress, accent, highlighted, 0);
+	}
+
+	private static JPanel leaderRow(int rank, String name, String score, double progress, Color accent,
+			boolean highlighted, int minimumScoreWidth) {
 		JPanel p = new JPanel(new BorderLayout(6, 0)) {
 			@Override
 			protected void paintComponent(Graphics g) {
@@ -1342,12 +1376,17 @@ public class ZweetnekkenPanel extends PluginPanel {
 		scoreLabel.setForeground(SCORE_COLOR);
 		scoreLabel.setFont(scoreLabel.getFont().deriveFont(Font.BOLD, 12f));
 		scoreLabel.setToolTipText(score);
-		int scoreWidth = Math.min(90, scoreLabel.getPreferredSize().width);
+		int scoreWidth = Math.max(minimumScoreWidth, Math.min(90, scoreLabel.getPreferredSize().width));
 		scoreLabel.setPreferredSize(new Dimension(scoreWidth, 18));
+		if (minimumScoreWidth > 0) scoreLabel.setMinimumSize(new Dimension(scoreWidth, 18));
 		p.add(rankLabel, BorderLayout.WEST);
 		p.add(nameLabel, BorderLayout.CENTER);
 		p.add(scoreLabel, BorderLayout.EAST);
 		return p;
+	}
+
+	static JPanel eventLeaderRow(int rank, String name, String score, double progress) {
+		return leaderRow(rank, name, score, progress, BOTW_ACCENT, false, 76);
 	}
 
 	private static String styledScore(String score) {

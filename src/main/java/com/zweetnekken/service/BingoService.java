@@ -119,12 +119,9 @@ public class BingoService
 		ZweetnekkenModels.BingoRules activeRules = rules;
 		if (event == null || activeRules == null || activeRules.triggers == null
 			|| !activeRules.triggers.bossPet) return false;
-		// A pet is valid Tile Race evidence only when that exact pet item is
-		// referenced by an active tile. Do not accept unrelated boss pets merely
-		// because a boss kill-count message was recently observed.
-		if (petItemIds != null)
-			for (Integer itemId : petItemIds)
-				if (itemId != null && itemIds.contains(itemId)) return true;
+		if (isBossSource(bossId, sourceName)) return true;
+		if (hasRecentBossSource()) return true;
+		if (petItemIds != null) for (Integer itemId : petItemIds) if (itemId != null && itemIds.contains(itemId)) return true;
 		return false;
 	}
 

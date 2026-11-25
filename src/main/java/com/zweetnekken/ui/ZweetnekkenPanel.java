@@ -28,6 +28,7 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Image;
+import java.awt.LayoutManager;
 import java.awt.RenderingHints;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
@@ -40,6 +41,8 @@ import java.awt.image.BufferedImage;
 import java.text.NumberFormat;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -67,30 +70,32 @@ import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
-import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.util.AsyncBufferedImage;
 
 public class ZweetnekkenPanel extends PluginPanel {
-	private static final Color GOLD = new Color(207, 164, 76);
+	private static final Color GOLD = ZweetnekkenTheme.GOLD;
+	private static final Color PANEL_BACKGROUND = ZweetnekkenTheme.BACKGROUND;
+	private static final Color CARD_BACKGROUND = ZweetnekkenTheme.SURFACE;
+	private static final Color TEXT_MUTED = ZweetnekkenTheme.MUTED;
 	private static final Color TAB_BG = new Color(30, 33, 36);
-	private static final Color TAB_ACTIVE_BG = new Color(143, 57, 54);
+	private static final Color TAB_ACTIVE_BG = ZweetnekkenTheme.BLUE;
 	private static final Color TAB_ACTIVE_FG = Color.WHITE;
 	private static final Color TAB_INACTIVE_FG = new Color(170, 170, 170);
-	private static final Color TAB_HOVER_BG = new Color(55, 60, 65);
-	private static final Color CONNECTED_COLOR = new Color(76, 175, 80);
+	private static final Color TAB_HOVER_BG = ZweetnekkenTheme.HOVER;
+	private static final Color CONNECTED_COLOR = ZweetnekkenTheme.GREEN;
 	private static final Color DISCONNECTED_COLOR = new Color(158, 158, 158);
 	private static final Color BOTW_ACCENT = new Color(176, 70, 67);
-	private static final Color SOTW_ACCENT = new Color(194, 83, 80);
-	private static final Color PVM_ACCENT = new Color(194, 83, 80);
-	private static final Color CLAN_ACCENT = new Color(194, 83, 80);
-	private static final Color PRIMARY_BUTTON_BG = new Color(143, 57, 54);
-	private static final Color SCORE_COLOR = Color.WHITE;
-	static final int NAV_BUTTON_HEIGHT = 27;
+	private static final Color SOTW_ACCENT = new Color(55, 142, 157);
+	private static final Color PVM_ACCENT = ZweetnekkenTheme.BLUE;
+	private static final Color CLAN_ACCENT = ZweetnekkenTheme.GREEN;
+	private static final Color PRIMARY_BUTTON_BG = PANEL_BACKGROUND;
+	private static final Color SCORE_COLOR = new Color(238, 205, 124);
+	static final int NAV_BUTTON_HEIGHT = 28;
 	private static final Color[] RANK_COLORS = {
-			Color.WHITE, new Color(185, 195, 204), new Color(190, 126, 75)
+			new Color(238, 193, 73), new Color(185, 195, 204), new Color(190, 126, 75)
 	};
 	private final ZweetnekkenDataService data;
 	private final ImageCache imageCache;
@@ -108,27 +113,29 @@ public class ZweetnekkenPanel extends PluginPanel {
 	private boolean submissionsReloadRequested;
 	private final JLabel banner = new AspectRatioIconLabel();
 	private final JLabel avatar = new JLabel();
-	private final JLabel identity = new JLabel("Log in to RuneLite", SwingConstants.LEFT);
+	private JPanel profileBar;
+	private final JLabel identity = new JLabel("Log in op RuneLite", SwingConstants.LEFT);
 	private final JLabel status = muted("");
 	private final JLabel connectionDot = new JLabel();
-	private final JPanel home = verticalPanel();
+	private final JPanel home = fullWidthColumn();
 	private final EventPanel eventPanel;
 	private final JPanel submissions = verticalPanel();
+	private final JPanel settings = verticalPanel();
+	private final ZweetnekkenPvmDiaryPanel pvmDiaryPanel;
+	private final ZweetnekkenMemberSearchPanel memberSearchPanel;
+	private final ZweetnekkenMemberProfilePanel memberProfilePanel;
 	private final CardLayout contentCards = new CardLayout();
 	private final JPanel contentPanel = new JPanel(contentCards);
-	private JLabel homeTab;
-	private JLabel submissionsTab;
+	private final java.util.Map<String, JLabel> navigationTabs = new java.util.LinkedHashMap<>();
 	private final JPanel extraSettings = verticalPanel();
-	private JButton extraSettingsButton;
-	private boolean extraSettingsVisible;
-	private boolean botwExpanded = true;
-	private boolean sotwExpanded = true;
-	private String activeTab = "Home";
+	private boolean botwExpanded;
+	private boolean sotwExpanded;
+	private String activeTab = "Profile";
 
 	@Inject
 	public ZweetnekkenPanel(ZweetnekkenDataService data, EvidenceStore evidence, EventPipeline pipeline,
 			ZweetnekkenConfig config, ConfigManager configManager, SpriteManager spriteManager, ItemManager itemManager,
-			ImageCache imageCache, TileRaceService tileRace) {
+			ImageCache imageCache, TileRaceService tileRace, ZweetnekkenApiClient api) {
 		super(false);
 		this.data = data;
 		this.imageCache = imageCache;
@@ -140,74 +147,78 @@ public class ZweetnekkenPanel extends PluginPanel {
 		this.itemManager = itemManager;
 		this.tileRace = tileRace;
 		this.eventPanel = new EventPanel(tileRace::currentEvents);
+		this.pvmDiaryPanel = new ZweetnekkenPvmDiaryPanel(data);
+		this.memberProfilePanel = new ZweetnekkenMemberProfilePanel(data, this::returnToLeaderboards);
+		this.memberSearchPanel = new ZweetnekkenMemberSearchPanel(api, this::openMemberProfile);
 		this.eventPanel.setVisible(false);
 		tileRace.addListener(this::refreshEventPanel);
 		setLayout(new BorderLayout());
-		setBackground(ColorScheme.DARK_GRAY_COLOR);
+		setBackground(PANEL_BACKGROUND);
 		setBorder(null);
 
 		JPanel header = new JPanel(new GridBagLayout());
-		header.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		header.setBackground(PANEL_BACKGROUND);
 		GridBagConstraints headerRow = new GridBagConstraints();
 		headerRow.gridx = 0;
 		headerRow.gridy = 0;
 		headerRow.weightx = 1.0;
 		headerRow.fill = GridBagConstraints.HORIZONTAL;
-		headerRow.anchor = GridBagConstraints.NORTHWEST;
 		banner.setAlignmentX(Component.CENTER_ALIGNMENT);
 		banner.setIcon(new ImageIcon(fallbackBanner()));
 		refreshBanner();
 		header.add(banner, headerRow);
 
 		// Profile bar with connection status dot
-		JPanel profile = new JPanel(new BorderLayout(8, 0));
-		profile.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		profile.setBorder(BorderFactory.createCompoundBorder(
-				BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(67, 70, 73)),
-				BorderFactory.createEmptyBorder(8, 8, 8, 8)));
-		avatar.setPreferredSize(new Dimension(58, 58));
-		avatar.setIcon(new ImageIcon(scale(placeholderAvatar(), 58, 58)));
+		profileBar = ZweetnekkenTheme.surface(new BorderLayout(8, 0));
+		JPanel profile = profileBar;
+		profile.setBackground(CARD_BACKGROUND);
+		profile.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+		avatar.setPreferredSize(new Dimension(36, 36));
+		avatar.setIcon(new ImageIcon(scale(placeholderAvatar(), 36, 36)));
 		profile.add(avatar, BorderLayout.WEST);
 
 		JPanel text = verticalPanel();
+		text.setOpaque(false);
+		text.setBackground(CARD_BACKGROUND);
 		identity.setForeground(Color.WHITE);
-		identity.setFont(identity.getFont().deriveFont(Font.BOLD));
+		identity.setOpaque(false);
+		identity.setFont(ZweetnekkenTheme.font(true));
 		text.add(identity);
+		status.setFont(ZweetnekkenTheme.font(false));
+		status.setOpaque(false);
 		text.add(status);
 		profile.add(text, BorderLayout.CENTER);
 
 		connectionDot.setPreferredSize(new Dimension(14, 14));
-		connectionDot.setToolTipText("Not connected");
+		connectionDot.setToolTipText("Niet verbonden");
 		connectionDot.setHorizontalAlignment(SwingConstants.CENTER);
 		connectionDot.setVerticalAlignment(SwingConstants.CENTER);
 		profile.add(connectionDot, BorderLayout.EAST);
 
-		headerRow.gridy++;
-		header.add(profile, headerRow);
-
-		// Navigation: two tabs on the first row, one full-width settings row beneath
-		// them.
+		// Compact two-column navigation for the plugin pages.
 		JPanel navigation = fullWidthVerticalPanel();
 		navigation.setLayout(new GridBagLayout());
-		navigation.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		navigation.setBackground(PANEL_BACKGROUND);
 		navigation.setAlignmentX(Component.LEFT_ALIGNMENT);
 		GridBagConstraints navigationRow = new GridBagConstraints();
 		navigationRow.gridx = 0;
 		navigationRow.gridy = 0;
 		navigationRow.weightx = 1.0;
 		navigationRow.fill = GridBagConstraints.HORIZONTAL;
-		navigationRow.anchor = GridBagConstraints.NORTHWEST;
 		navigation.add(buildTabBar(), navigationRow);
-		navigationRow.gridy++;
-		navigation.add(buildExtraSettings(), navigationRow);
 		headerRow.gridy++;
 		header.add(navigation, headerRow);
 
 		// Content area with CardLayout
-		contentPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		contentPanel.add(scroll(home, true), "Home");
+		contentPanel.setBackground(PANEL_BACKGROUND);
+		contentPanel.add(scroll(home, true), "Profile");
+		contentPanel.add(scroll(memberSearchPanel, true), "Leaderboards");
+		contentPanel.add(scroll(memberProfilePanel, true), "MemberProfile");
+		contentPanel.add(scroll(pvmDiaryPanel, true), "PvM Diary");
 		contentPanel.add(scroll(submissions, true), "Submissions");
-		contentCards.show(contentPanel, "Home");
+		settings.add(buildExtraSettings());
+		contentPanel.add(scroll(settings, true), "Settings");
+		contentCards.show(contentPanel, "Profile");
 
 		add(header, BorderLayout.NORTH);
 		add(contentPanel, BorderLayout.CENTER);
@@ -217,32 +228,23 @@ public class ZweetnekkenPanel extends PluginPanel {
 	}
 
 	private JPanel buildExtraSettings() {
-		JPanel container = fullWidthVerticalPanel();
+		JPanel container = card();
 		container.setAlignmentX(Component.LEFT_ALIGNMENT);
-		container.setBorder(BorderFactory.createEmptyBorder(8, 8, 6, 8));
-		extraSettingsButton = actionButton("Extra Settings", false);
-		extraSettingsButton.setAlignmentX(Component.LEFT_ALIGNMENT);
-		extraSettingsButton.setMinimumSize(new Dimension(0, NAV_BUTTON_HEIGHT));
-		extraSettingsButton.setPreferredSize(new Dimension(0, NAV_BUTTON_HEIGHT));
-		extraSettingsButton
-				.setMaximumSize(new Dimension(Integer.MAX_VALUE, extraSettingsButton.getPreferredSize().height));
-		extraSettingsButton.addActionListener(e -> toggleExtraSettings());
-		container.add(extraSettingsButton);
-
+		container.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+		container.add(sectionHeading("INSTELLINGEN"));
+		container.add(Box.createVerticalStrut(8));
 		extraSettings.setAlignmentX(Component.LEFT_ALIGNMENT);
 		extraSettings.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-		extraSettings.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
-		extraSettings.setVisible(false);
-		extraSettings.add(sectionHeading("ACTIONS"));
-		extraSettings.add(Box.createVerticalStrut(4));
-		JPanel actions = new JPanel(new GridLayout(0, 2, 6, 4));
-		actions.setOpaque(false);
-		actions.setAlignmentX(Component.LEFT_ALIGNMENT);
-		actions.add(configActionButton("Refresh profile", "refreshProfile", true));
-		actions.add(configActionButton("Retry uploads", "retryOutbox", true));
-		JButton clearCache = configActionButton("Clear image cache", "clearImageCache", false);
-		actions.add(clearCache);
-		actions.setMaximumSize(new Dimension(Integer.MAX_VALUE, actions.getPreferredSize().height));
+		extraSettings.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+		extraSettings.setVisible(true);
+		extraSettings.add(sectionHeading("Profiel & uploads"));
+		extraSettings.add(Box.createVerticalStrut(7));
+		JPanel actions = fullWidthVerticalPanel();
+		actions.add(configActionButton("Profiel vernieuwen", "refreshProfile", true));
+			actions.add(blackDivider(6));
+		actions.add(configActionButton("Uploads opnieuw proberen", "retryOutbox", false));
+			actions.add(blackDivider(6));
+		actions.add(configActionButton("Afbeeldingencache wissen", "clearImageCache", false));
 		extraSettings.add(actions);
 		container.add(extraSettings);
 		return container;
@@ -251,6 +253,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 	private JButton configActionButton(String text, String key, boolean primary) {
 		JButton button = actionButton(text, primary);
 		button.addActionListener(e -> {
+			if ("refreshProfile".equals(key)) memberSearchPanel.refreshLeaderboard();
 			// Always generate a change event, even if an older plugin version left this key
 			// set.
 			configManager.setConfiguration(ZweetnekkenConfig.GROUP, key, false);
@@ -259,78 +262,43 @@ public class ZweetnekkenPanel extends PluginPanel {
 		return button;
 	}
 
-	private void toggleExtraSettings() {
-		extraSettingsVisible = !extraSettingsVisible;
-		extraSettings.setVisible(extraSettingsVisible);
-		extraSettingsButton.setText(extraSettingsVisible ? "Hide Extra Settings" : "Extra Settings");
-		revalidate();
-		repaint();
-	}
-
 	private JPanel buildTabBar() {
-		JPanel bar = new JPanel(new GridLayout(1, 2, 2, 0)) {
-			@Override
-			protected void paintComponent(Graphics g) {
-				Graphics2D g2 = (Graphics2D) g.create();
-				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-				g2.setColor(TAB_BG);
-				g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
-				g2.dispose();
-			}
-		};
+		JPanel bar = new JPanel(new GridBagLayout());
 		bar.setOpaque(false);
-		bar.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
-		int tabBarHeight = NAV_BUTTON_HEIGHT + 12;
+		bar.setBorder(BorderFactory.createEmptyBorder(8, 8, 2, 8));
+		int tabBarHeight = NAV_BUTTON_HEIGHT * 3 + 24;
 		bar.setMinimumSize(new Dimension(0, tabBarHeight));
 		bar.setPreferredSize(new Dimension(0, tabBarHeight));
 		bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, tabBarHeight));
 
-		homeTab = createTabLabel("Home", true);
-		submissionsTab = createTabLabel("Submissions", false);
-
-		homeTab.addMouseListener(new MouseAdapter() {
-			@Override
-			public void mouseClicked(MouseEvent e) {
-				switchTab("Home");
-			}
-
-			@Override
-			public void mouseEntered(MouseEvent e) {
-				if (!activeTab.equals("Home"))
-					homeTab.setBackground(TAB_HOVER_BG);
-				homeTab.repaint();
-			}
-
-			@Override
-			public void mouseExited(MouseEvent e) {
-				if (!activeTab.equals("Home"))
-					homeTab.setBackground(TAB_BG);
-				homeTab.repaint();
-			}
-		});
-		submissionsTab.addMouseListener(new MouseAdapter() {
-			@Override
-			public void mouseClicked(MouseEvent e) {
-				switchTab("Submissions");
-			}
-
-			@Override
-			public void mouseEntered(MouseEvent e) {
-				if (!activeTab.equals("Submissions"))
-					submissionsTab.setBackground(TAB_HOVER_BG);
-				submissionsTab.repaint();
-			}
-
-			@Override
-			public void mouseExited(MouseEvent e) {
-				if (!activeTab.equals("Submissions"))
-					submissionsTab.setBackground(TAB_BG);
-				submissionsTab.repaint();
-			}
-		});
-
-		bar.add(homeTab);
-		bar.add(submissionsTab);
+		String[] names = {"Profile", "Leaderboards", "PvM Diary", "Submissions", "Settings"};
+		String[] labels = {"Profiel", "Leaderboards", "PvM Diary", "Inzendingen", "Instellingen"};
+		for (int i = 0; i < names.length; i++)
+		{
+			String name = names[i];
+			JLabel tab = createTabLabel(labels[i], name.equals(activeTab));
+			navigationTabs.put(name, tab);
+			tab.addMouseListener(new MouseAdapter() {
+				@Override public void mouseClicked(MouseEvent e) { switchTab(name); }
+				@Override public void mouseEntered(MouseEvent e) {
+					if (!activeTab.equals(name)) tab.setBackground(TAB_HOVER_BG);
+					tab.repaint();
+				}
+				@Override public void mouseExited(MouseEvent e) {
+					if (!activeTab.equals(name)) tab.setBackground(TAB_BG);
+					tab.repaint();
+				}
+			});
+			GridBagConstraints cell = new GridBagConstraints();
+			cell.gridx = i % 2;
+			cell.gridy = i / 2;
+			cell.gridwidth = i == names.length - 1 ? 2 : 1;
+			cell.weightx = cell.gridwidth;
+			cell.fill = GridBagConstraints.HORIZONTAL;
+			cell.insets = new Insets(i < 2 ? 0 : 5,
+					i % 2 == 1 ? 6 : 0, 0, i % 2 == 0 && cell.gridwidth == 1 ? 6 : 0);
+			bar.add(tab, cell);
+		}
 		return bar;
 	}
 
@@ -341,13 +309,13 @@ public class ZweetnekkenPanel extends PluginPanel {
 				Graphics2D g2 = (Graphics2D) g.create();
 				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 				g2.setColor(getBackground());
-				g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+				g2.fillRoundRect(0, 0, getWidth(), getHeight(), 6, 6);
 				g2.dispose();
 				super.paintComponent(g);
 			}
 		};
 		label.setOpaque(false);
-		label.setFont(label.getFont().deriveFont(Font.BOLD, 11f));
+		label.setFont(ZweetnekkenTheme.font(true));
 		label.setMinimumSize(new Dimension(0, NAV_BUTTON_HEIGHT));
 		label.setPreferredSize(new Dimension(0, NAV_BUTTON_HEIGHT));
 		label.setMaximumSize(new Dimension(Integer.MAX_VALUE, NAV_BUTTON_HEIGHT));
@@ -363,18 +331,36 @@ public class ZweetnekkenPanel extends PluginPanel {
 	}
 
 	private void switchTab(String tabName) {
-		if (activeTab.equals(tabName))
+		if (activeTab.equals(tabName)) {
+			if ("Leaderboards".equals(tabName)) contentCards.show(contentPanel, "Leaderboards");
 			return;
+		}
 		activeTab = tabName;
 
-		homeTab.setBackground(tabName.equals("Home") ? TAB_ACTIVE_BG : TAB_BG);
-		homeTab.setForeground(tabName.equals("Home") ? TAB_ACTIVE_FG : TAB_INACTIVE_FG);
-		submissionsTab.setBackground(tabName.equals("Submissions") ? TAB_ACTIVE_BG : TAB_BG);
-		submissionsTab.setForeground(tabName.equals("Submissions") ? TAB_ACTIVE_FG : TAB_INACTIVE_FG);
-
-		homeTab.repaint();
-		submissionsTab.repaint();
+		navigationTabs.forEach((name, tab) -> {
+			boolean selected = name.equals(tabName);
+			tab.setBackground(selected ? TAB_ACTIVE_BG : TAB_BG);
+			tab.setForeground(selected ? TAB_ACTIVE_FG : TAB_INACTIVE_FG);
+			tab.repaint();
+		});
 		contentCards.show(contentPanel, tabName);
+		if ("PvM Diary".equals(tabName)) pvmDiaryPanel.refresh();
+		if ("Leaderboards".equals(tabName)) memberSearchPanel.loadLeaderboard();
+	}
+
+	private void openMemberProfile(String memberName)
+	{
+		memberProfilePanel.load(memberName);
+		contentCards.show(contentPanel, "MemberProfile");
+		contentPanel.revalidate();
+		contentPanel.repaint();
+	}
+
+	private void returnToLeaderboards(String memberName)
+	{
+		contentCards.show(contentPanel, "Leaderboards");
+		contentPanel.revalidate();
+		contentPanel.repaint();
 	}
 
 	private void refreshOnEdt() {
@@ -449,19 +435,23 @@ public class ZweetnekkenPanel extends PluginPanel {
 		ZweetnekkenModels.Profile profile = data.profile();
 		if (profile == null || profile.member == null) {
 			identity.setText("Zweetnekken");
-			status.setText(html(data.message()));
-			avatar.setIcon(new ImageIcon(scale(placeholderAvatar(), 58, 58)));
+			identity.setToolTipText(data.message());
+			status.setText("<html>" + esc(data.message()) + "</html>");
+			avatar.setIcon(new ImageIcon(scale(placeholderAvatar(), 36, 36)));
 		} else {
 			String rank = profile.standings == null ? "—" : value(profile.standings.currentRank);
-			identity.setText(html("<b>" + esc(profile.member.name) + "</b><br><span style='color:#ffffff'>"
-					+ esc(rank) + "</span>"));
-			status.setText(html("<span style='color:#9da1a4'>Zweetnekken</span>"));
+			identity.setToolTipText(null);
+			identity.setText("<html><b>" + esc(profile.member.name) + "</b><br><span style='color:#ffffff'>"
+					+ esc(rank) + "</span></html>");
+			status.setText("<html><span style='color:#96968c'>Zweetnekken</span></html>");
 			avatar.setIcon(new ImageIcon(
-					scale(data.profileImage() == null ? placeholderAvatar() : data.profileImage(), 58, 58)));
+					scale(data.profileImage() == null ? placeholderAvatar() : data.profileImage(), 36, 36)));
 		}
 		updateConnectionDot();
 		rebuildHome();
 		rebuildSubmissions();
+		pvmDiaryPanel.refresh();
+		ZweetnekkenTheme.typography(this);
 		revalidate();
 		repaint();
 	}
@@ -473,19 +463,19 @@ public class ZweetnekkenPanel extends PluginPanel {
 		String tooltip;
 		switch (conn) {
 			case CONNECTED:
-				tooltip = "Connected";
+				tooltip = "Verbonden";
 				break;
 			case CHECKING:
-				tooltip = "Checking code…";
+				tooltip = "Code controleren…";
 				break;
 			case INVALID:
-				tooltip = "Invalid code";
+				tooltip = "Ongeldige code";
 				break;
 			case UNAVAILABLE:
-				tooltip = "Unavailable";
+				tooltip = "Niet beschikbaar";
 				break;
 			default:
-				tooltip = "Not connected";
+				tooltip = "Niet verbonden";
 		}
 		connectionDot.setToolTipText(tooltip);
 		connectionDot.setIcon(new ImageIcon(createDotImage(dotColor)));
@@ -504,47 +494,129 @@ public class ZweetnekkenPanel extends PluginPanel {
 
 	private void rebuildHome() {
 		home.removeAll();
+		home.add(profileBar);
+		home.add(blackDivider(8));
 		ZweetnekkenModels.Profile profile = data.profile();
 		if (profile != null && profile.standings != null) {
 			ZweetnekkenModels.Standings s = profile.standings;
 			JPanel ranks = card();
-			ranks.add(sectionHeading("CLAN PROFILE"));
-			ranks.add(Box.createVerticalStrut(5));
-			ranks.add(statRow("PVM RANK", rank(s.pvmRank), PVM_ACCENT,
-					"CLAN RANK", rank(s.clanRank), CLAN_ACCENT));
-			ranks.add(Box.createVerticalStrut(4));
-			ranks.add(statRow("PVM POINTS", number(s.pvmPoints), PVM_ACCENT,
-					"CLAN POINTS", number(s.clanPoints), CLAN_ACCENT));
 			if (s.nextRank != null) {
-				ranks.add(Box.createVerticalStrut(7));
 				ranks.add(nextRank(value(s.nextRank.name)));
-				ranks.add(Box.createVerticalStrut(4));
+				ranks.add(Box.createVerticalStrut(5));
 				ranks.add(progress("PvM", s.pvmPoints, s.nextRank.pvmPointsRemaining, PVM_ACCENT));
-				ranks.add(Box.createVerticalStrut(3));
+				ranks.add(Box.createVerticalStrut(5));
 				ranks.add(progress("Clan", s.clanPoints, s.nextRank.clanPointsRemaining, CLAN_ACCENT));
-			} else
-				ranks.add(muted("Administrative or highest rank"));
+			} else {
+				ranks.add(sectionHeading("CLANPROFIEL"));
+				ranks.add(Box.createVerticalStrut(7));
+				ranks.add(statRow("PVM RANK", rank(s.pvmRank), PVM_ACCENT,
+						"CLAN RANK", rank(s.clanRank), CLAN_ACCENT));
+				ranks.add(Box.createVerticalStrut(8));
+				ranks.add(muted("Beheerdersrang of hoogste rang"));
+			}
 			home.add(ranks);
-			home.add(Box.createVerticalStrut(8));
+			home.add(blackDivider(8));
 		}
+		home.add(pvmDiaryOverview());
+		home.add(blackDivider(8));
+		home.add(collectionLogOverview(profile == null ? null : profile.collectionLog));
+		home.add(blackDivider(10));
+		home.add(competitionSectionHeading("COMPETITIES", GOLD));
+		home.add(Box.createVerticalStrut(5));
 		ZweetnekkenModels.CompetitionPanels competitions = data.competitionPanels();
 		ZweetnekkenModels.Standings standings = profile == null ? null : profile.standings;
 		String playerName = profile == null || profile.member == null ? null : profile.member.name;
 		String weeklyTiming = sharedCompetitionTiming(competitions);
 		if (!weeklyTiming.isEmpty()) {
 			home.add(weeklyTimer(weeklyTiming));
-			home.add(Box.createVerticalStrut(8));
+			home.add(blackDivider(8));
 		}
 		boolean authRequired = requiresCompetitionAuthentication(data.connection());
 		home.add(competition("BOTW", competitions == null ? null : competitions.botw,
 				authRequired ? data.unauthenticatedBotwImage() : data.botwImage(),
 				standings == null ? null : standings.botwRank, playerName, botwExpanded));
-		home.add(Box.createVerticalStrut(8));
+		home.add(blackDivider(10));
 		home.add(competition("SOTW", competitions == null ? null : competitions.sotw,
 				authRequired ? data.unauthenticatedSotwImage() : data.sotwImage(),
 				standings == null ? null : standings.sotwRank, playerName, sotwExpanded));
-		home.add(Box.createVerticalStrut(8));
+		home.add(blackDivider(8));
 		home.add(eventPanel);
+	}
+
+	private JPanel pvmDiaryOverview()
+	{
+		JPanel diary = card();
+		diary.add(label("PvM Diary", true));
+		diary.add(Box.createVerticalStrut(5));
+		ZweetnekkenModels.PvmDiaryStatus status = data.pvmDiaryStatus();
+		if (status == null)
+		{
+			diary.add(wrappedMuted(data.pvmDiaryMessage()));
+		}
+		else
+		{
+		diary.add(row("Punten", number(status.earnedPoints), "Tiers",
+				status.completedTiers + " / " + status.totalTiers));
+			JProgressBar progress = new JProgressBar(0, 1000);
+			progress.setValue(status.totalPoints <= 0 ? 0
+				: (int) Math.min(1000, Math.max(0, status.earnedPoints * 1000 / status.totalPoints)));
+			progress.setBorderPainted(false);
+			progress.setBackground(new Color(52, 55, 58));
+			progress.setForeground(GOLD);
+			progress.setMaximumSize(new Dimension(Integer.MAX_VALUE, 7));
+			diary.add(Box.createVerticalStrut(7));
+			diary.add(progress);
+		}
+		diary.add(Box.createVerticalStrut(8));
+		JButton open = actionButton("Bekijk PvM Diary", false);
+		open.setAlignmentX(Component.LEFT_ALIGNMENT);
+		open.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+		open.addActionListener(e -> switchTab("PvM Diary"));
+		diary.add(open);
+		return diary;
+	}
+
+	private JPanel collectionLogOverview(ZweetnekkenModels.CollectionLogProgress progress)
+	{
+		JPanel collectionLog = card();
+		collectionLog.add(label("Collection Log", true));
+		collectionLog.add(Box.createVerticalStrut(6));
+		if (progress == null)
+		{
+			collectionLog.add(wrappedMuted("Collection Log is nog niet gesynchroniseerd."));
+			return collectionLog;
+		}
+		collectionLog.add(row("Slots obtained", number(progress.obtainedCount), "of", number(progress.totalCount)));
+		JProgressBar bar = new JProgressBar(0, 1000);
+		bar.setValue(progress.totalCount <= 0 ? 0 : (int) Math.min(1000,
+			Math.max(0, progress.obtainedCount * 1000L / progress.totalCount)));
+		bar.setBorderPainted(false);
+		bar.setBackground(new Color(52, 55, 58));
+		bar.setForeground(GOLD);
+		bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 7));
+		collectionLog.add(Box.createVerticalStrut(6));
+		collectionLog.add(bar);
+		String syncedAt = collectionLogSyncedAt(progress.updatedAt);
+		if (!syncedAt.isEmpty())
+		{
+			collectionLog.add(Box.createVerticalStrut(5));
+			collectionLog.add(muted("Synced " + syncedAt));
+		}
+		return collectionLog;
+	}
+
+	private static String collectionLogSyncedAt(String timestamp)
+	{
+		if (timestamp == null || timestamp.isBlank()) return "";
+		try
+		{
+			return DateTimeFormatter.ofPattern("MMM d, HH:mm z", Locale.ENGLISH)
+				.format(Instant.parse(timestamp).atZone(ZoneId.systemDefault()));
+		}
+		catch (RuntimeException e)
+		{
+			return "";
+		}
 	}
 
 	static boolean requiresCompetitionAuthentication(ZweetnekkenDataService.Connection connection) {
@@ -561,9 +633,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 		if (!expanded)
 			return card;
 
-		int cardContentWidth = PANEL_WIDTH - 32;
-		BufferedImage scaledArtwork = scaleToWidth(image == null ? placeholderCompetition(kind) : image,
-				cardContentWidth);
+		BufferedImage scaledArtwork = image == null ? placeholderCompetition(kind) : image;
 		JLabel artwork = new AspectRatioIconLabel();
 		artwork.setIcon(new ImageIcon(scaledArtwork));
 		artwork.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -572,12 +642,12 @@ public class ZweetnekkenPanel extends PluginPanel {
 		boolean upcoming = isUpcoming(competition);
 		boolean finished = isFinished(competition);
 		if (competition == null) {
-			card.add(muted("Competition data is currently unavailable"));
+			card.add(muted("Competitiegegevens zijn momenteel niet beschikbaar"));
 			return card;
 		}
 		if (upcoming) {
 			Color accent = competitionAccent(kind);
-			card.add(competitionSectionHeading("UPCOMING", accent));
+			card.add(competitionSectionHeading("BINNENKORT", accent));
 			card.add(Box.createVerticalStrut(3));
 			card.add(muted(startsCountdown(competition.startsAt)));
 			return card;
@@ -589,37 +659,34 @@ public class ZweetnekkenPanel extends PluginPanel {
 		boolean showPersonalProgress = !finished
 				|| (playerRank != null && playerRank.rank != null && playerRank.rank <= 3);
 		if (showPersonalProgress) {
-			card.add(competitionSectionHeading("YOUR PROGRESS", accent));
+			card.add(competitionSectionHeading("JOUW VOORTGANG", accent));
 			card.add(Box.createVerticalStrut(3));
 			if (playerRank == null || playerRank.rank == null) {
-				card.add(muted("No personal progress yet"));
+				card.add(muted("Nog geen persoonlijke voortgang"));
 			} else {
-				String score = playerRank.displayValue == null || playerRank.displayValue.isBlank()
-						? number(playerRank.gained) + " "
-								+ value(playerRank.unit == null ? competition.unit : playerRank.unit)
-						: playerRank.displayValue;
+				String score = CompetitionScoreFormatter.format(playerRank.gained,
+					playerRank.unit == null ? competition.unit : playerRank.unit, playerRank.displayValue);
 				card.add(leaderRow(playerRank.rank, value(playerName), score,
 						leadingScore == 0 ? 0 : (double) Math.max(0, playerRank.gained) / leadingScore, accent, true));
 			}
 			card.add(Box.createVerticalStrut(6));
 		}
 
-		card.add(competitionSectionHeading(finished ? "WINNERS" : "LEADERBOARD", SCORE_COLOR));
+		card.add(competitionSectionHeading(finished ? "WINNAARS" : "RANGLIJST", SCORE_COLOR));
 		card.add(Box.createVerticalStrut(3));
 		for (int i = 0; i < Math.min(3, leaders.size()); i++) {
 			ZweetnekkenModels.PanelLeader leader = leaders.get(i);
 			String nameValue = leader.displayName == null || leader.displayName.isBlank() ? value(leader.username)
 					: leader.displayName;
-			String score = leader.displayValue == null || leader.displayValue.isBlank()
-					? number(leader.gained) + " " + value(leader.unit == null ? competition.unit : leader.unit)
-					: leader.displayValue;
+			String score = CompetitionScoreFormatter.format(leader.gained,
+				leader.unit == null ? competition.unit : leader.unit, leader.displayValue);
 			card.add(leaderRow(leader.rank > 0 ? leader.rank : i + 1, nameValue, score,
 					leadingScore == 0 ? 0 : (double) Math.max(0, leader.gained) / leadingScore, accent, false));
 			if (i < Math.min(3, leaders.size()) - 1)
 				card.add(Box.createVerticalStrut(3));
 		}
 		if (leaders.isEmpty()) {
-			card.add(muted(finished ? "No completed competition history" : "No leaderboard history yet"));
+			card.add(muted(finished ? "Nog geen afgeronde competities" : "Nog geen ranglijstgegevens"));
 		}
 		return card;
 	}
@@ -662,7 +729,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 					renderSubmissions(get());
 				} catch (InterruptedException | java.util.concurrent.ExecutionException e) {
 					submissions.removeAll();
-					submissions.add(muted("Unable to load local submissions."));
+					submissions.add(muted("Lokale inzendingen konden niet worden geladen."));
 				}
 				submissions.revalidate();
 				submissions.repaint();
@@ -689,7 +756,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 		if (visibleRecords.isEmpty()) {
 			if (!trialistMode) {
 				submissions.add(muted(
-					"Drops, personal bests, collection log entries, pets, and combat achievements will appear here."));
+					"Drops, PB's, collection-logitems, pets en combat achievements verschijnen hier."));
 			}
 			return;
 		}
@@ -710,56 +777,57 @@ public class ZweetnekkenPanel extends PluginPanel {
 			clanMembers.setPreferredSize(new Dimension(54, clanMembers.getPreferredSize().height));
 			nonClanMembers.setPreferredSize(new Dimension(54, nonClanMembers.getPreferredSize().height));
 			JTextField notes = new JTextField();
-			notes.setToolTipText("Optional submission notes");
+			notes.setToolTipText("Optionele notities bij de inzending");
 			notes.setMaximumSize(new Dimension(Integer.MAX_VALUE, notes.getPreferredSize().height));
 			PartyMemberEditor partyMemberEditor = record.metadata.party == null ? null
 					: new PartyMemberEditor(record.metadata.party);
 			if (record.metadata.party != null) {
 				card.add(Box.createVerticalStrut(4));
-				card.add(fieldRow("Party size", party));
-				card.add(fieldRow("Clan members", clanMembers));
-				card.add(fieldRow("Non-clan members", nonClanMembers));
-				JButton editParty = actionButton("Edit party members", false);
+				card.add(fieldRow("Groepsgrootte", party));
+				card.add(fieldRow("Clanleden", clanMembers));
+				card.add(fieldRow("Gastspelers", nonClanMembers));
+				JButton editParty = actionButton("Groepsleden aanpassen", false);
 				editParty.addActionListener(e -> partyMemberEditor.show(party, clanMembers, nonClanMembers));
 				card.add(editParty);
-				card.add(muted("Detected via " + friendlyMethod(record.metadata.party.method)));
+				card.add(muted("Herkend via " + friendlyMethod(record.metadata.party.method)));
 				int unknown = Math.max(0, record.metadata.party.detectedPartySize
 						- record.metadata.party.detectedClanMemberCount
 						- record.metadata.party.detectedNonClanMemberCount);
 				if (unknown > 0 && !"fixed_solo".equals(record.metadata.party.method))
-					card.add(muted(unknown + " participant" + (unknown == 1 ? "" : "s") + " could not be classified"));
+					card.add(muted(unknown + (unknown == 1
+							? " deelnemer kon niet worden ingedeeld" : " deelnemers konden niet worden ingedeeld")));
 				String memberNames = partyMemberNames(record.metadata.party);
 				if (!memberNames.isEmpty())
 					card.add(wrappedMuted(memberNames));
 			}
 			if (displayStatus == ZweetnekkenModels.EventStatus.DRAFT && canFinalize(group)) {
 				card.add(Box.createVerticalStrut(4));
-				card.add(label("Notes", false));
+				card.add(label("Notities", false));
 				card.add(notes);
 			}
 			List<JButton> actionButtons = new java.util.ArrayList<>();
 			EvidenceStore.Record proofRecord = proofRecord(group, record);
 			if (proofRecord != null) {
-				JButton proof = actionButton("View proof", false);
+				JButton proof = actionButton("Bewijs bekijken", false);
 				proof.addActionListener(e -> showProof(proofRecord));
 				actionButtons.add(proof);
 			}
 			if (displayStatus == ZweetnekkenModels.EventStatus.FAILED
 					|| displayStatus == ZweetnekkenModels.EventStatus.PENDING) {
-				JButton retry = actionButton("Retry", true);
+				JButton retry = actionButton("Opnieuw proberen", true);
 				retry.addActionListener(e -> runSubmissionAction(() -> pipeline.retryGroup(record)));
 				actionButtons.add(retry);
 			}
 			if ((displayStatus == ZweetnekkenModels.EventStatus.DRAFT
 					|| displayStatus == ZweetnekkenModels.EventStatus.FAILED) && canFinalize(group)) {
-				JButton submit = actionButton("Submit", true);
-				submit.setToolTipText("Confirm participants and send to the standard Discord /loot review flow.");
+				JButton submit = actionButton("Inzenden", true);
+				submit.setToolTipText("Bevestig de deelnemers en stuur de inzending naar het gebruikelijke /loot-kanaal op Discord.");
 				submit.addActionListener(e -> {
 					int partySize = (Integer) party.getValue();
 					int clanCount = (Integer) clanMembers.getValue();
 					int nonClanCount = (Integer) nonClanMembers.getValue();
 					if (clanCount + nonClanCount > partySize) {
-						JOptionPane.showMessageDialog(this, "Clan and non-clan members cannot exceed party size.");
+						JOptionPane.showMessageDialog(this, "Het aantal clanleden en gastspelers kan niet groter zijn dan de groepsgrootte.");
 						return;
 					}
 					String submissionNotes = notes.getText();
@@ -770,9 +838,9 @@ public class ZweetnekkenPanel extends PluginPanel {
 				});
 				actionButtons.add(submit);
 			}
-			JButton discard = actionButton("Discard", false);
+			JButton discard = actionButton("Verwijderen", false);
 			discard.addActionListener(e -> {
-				if (JOptionPane.showConfirmDialog(this, "Remove this local evidence?", "Discard",
+			if (JOptionPane.showConfirmDialog(this, "Dit lokale bewijs verwijderen?", "Bewijs verwijderen",
 						JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
 					runSubmissionAction(() -> {
 						for (EvidenceStore.Record member : group) evidence.deleteLocal(member.metadata.eventId);
@@ -799,7 +867,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 				try {
 					get();
 				} catch (InterruptedException | java.util.concurrent.ExecutionException e) {
-					JOptionPane.showMessageDialog(ZweetnekkenPanel.this, "Unable to update local submission.");
+				JOptionPane.showMessageDialog(ZweetnekkenPanel.this, "De lokale inzending kon niet worden bijgewerkt.");
 				}
 				refresh();
 			}
@@ -870,7 +938,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 				: party.submittedMembers == null || party.submittedMembers.isEmpty() ? party.members : party.submittedMembers;
 		if (members.isEmpty())
 			return "";
-		StringBuilder names = new StringBuilder("Party: ");
+		StringBuilder names = new StringBuilder("Groep: ");
 		for (ZweetnekkenModels.PartyMember member : members) {
 			if (member == null || member.name == null || member.name.isBlank())
 				continue;
@@ -899,13 +967,13 @@ public class ZweetnekkenPanel extends PluginPanel {
 			rebuildRoster(roster, (Integer) size.getValue());
 			JPanel content = verticalPanel();
 			content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-			content.add(fieldRow("Party size", size));
+			content.add(fieldRow("Groepsgrootte", size));
 			content.add(Box.createVerticalStrut(5));
-			content.add(label("Members", false));
+			content.add(label("Leden", false));
 			JScrollPane scroll = scroll(roster);
 			scroll.setPreferredSize(new Dimension(360, 190));
 			content.add(scroll);
-			int choice = JOptionPane.showConfirmDialog(ZweetnekkenPanel.this, content, "Edit party members",
+			int choice = JOptionPane.showConfirmDialog(ZweetnekkenPanel.this, content, "Groepsleden aanpassen",
 					JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
 			if (choice != JOptionPane.OK_OPTION) return;
 			readRoster(roster);
@@ -936,10 +1004,10 @@ public class ZweetnekkenPanel extends PluginPanel {
 				row.setOpaque(false);
 				JTextField name = new JTextField(member.name == null ? "" : member.name);
 				name.putClientProperty("partyIndex", index);
-				name.setToolTipText("RuneScape name");
-				JComboBox<String> role = new JComboBox<>(new String[] { "Unknown", "Clan", "Guest" });
+				name.setToolTipText("RuneScape-naam");
+				JComboBox<String> role = new JComboBox<>(new String[] { "Onbekend", "Clan", "Gast" });
 				role.setSelectedItem(Boolean.TRUE.equals(member.clanMember) ? "Clan"
-						: Boolean.FALSE.equals(member.clanMember) ? "Guest" : "Unknown");
+						: Boolean.FALSE.equals(member.clanMember) ? "Gast" : "Onbekend");
 				role.putClientProperty("partyIndex", index);
 				row.add(new JLabel((index + 1) + "."), BorderLayout.WEST);
 				row.add(name, BorderLayout.CENTER);
@@ -961,7 +1029,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 					if (field instanceof JTextField) member.name = ((JTextField) field).getText().trim();
 					if (field instanceof JComboBox) {
 						String role = String.valueOf(((JComboBox<?>) field).getSelectedItem());
-						member.clanMember = "Clan".equals(role) ? Boolean.TRUE : "Guest".equals(role) ? Boolean.FALSE : null;
+						member.clanMember = "Clan".equals(role) ? Boolean.TRUE : "Gast".equals(role) ? Boolean.FALSE : null;
 					}
 				}
 			}
@@ -985,7 +1053,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 		text.add(Box.createVerticalStrut(2));
 		JLabel title = new JLabel(title(record));
 		title.setForeground(Color.WHITE);
-		title.setFont(title.getFont().deriveFont(Font.BOLD));
+		title.setFont(ZweetnekkenTheme.font(true));
 		title.setToolTipText(title.getText());
 		text.add(title);
 		heading.add(text, BorderLayout.CENTER);
@@ -1040,16 +1108,16 @@ public class ZweetnekkenPanel extends PluginPanel {
 
 	static JButton actionButton(String text, boolean primary) {
 		JButton button = new JButton(text);
-		button.setForeground(primary ? TAB_ACTIVE_FG : new Color(205, 208, 211));
-		button.setFont(button.getFont().deriveFont(Font.BOLD, 11f));
+		button.setForeground(primary ? GOLD : TEXT_MUTED);
+		button.setFont(ZweetnekkenTheme.font(true));
 		button.setFocusPainted(false);
 		button.setBorderPainted(false);
 		button.setContentAreaFilled(false);
 		button.setOpaque(false);
 		button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		button.setMargin(new Insets(0, 8, 0, 8));
-		button.setPreferredSize(new Dimension(0, 27));
-		button.setBackground(primary ? PRIMARY_BUTTON_BG : new Color(47, 51, 55));
+		button.setPreferredSize(new Dimension(0, 28));
+		button.setBackground(PRIMARY_BUTTON_BG);
 		button.setRolloverEnabled(true);
 		button.setUI(new javax.swing.plaf.basic.BasicButtonUI() {
 			@Override
@@ -1061,9 +1129,12 @@ public class ZweetnekkenPanel extends PluginPanel {
 				if (target.getModel().isPressed())
 					background = background.darker();
 				else if (target.getModel().isRollover())
-					background = primary ? BOTW_ACCENT : TAB_HOVER_BG;
+					background = TAB_HOVER_BG;
 				g.setColor(background);
-				g.fillRoundRect(0, 0, target.getWidth(), target.getHeight(), 8, 8);
+				g.fillRoundRect(0, 0, target.getWidth(), target.getHeight(), 6, 6);
+				Color accent = primary ? GOLD : TEXT_MUTED;
+				g.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 180));
+				g.drawRoundRect(0, 0, target.getWidth() - 1, target.getHeight() - 1, 6, 6);
 				g.dispose();
 				super.paint(graphics, component);
 			}
@@ -1074,16 +1145,16 @@ public class ZweetnekkenPanel extends PluginPanel {
 	static JButton sectionToggleButton(String title, boolean expanded) {
 		JButton toggle = actionButton((expanded ? "▾ " : "▸ ") + title, false);
 		// Keep all collapsible section headings in RuneScape's bold pixel font.
-		toggle.setFont(net.runelite.client.ui.FontManager.getRunescapeBoldFont().deriveFont(11f));
+		toggle.setFont(ZweetnekkenTheme.font(true));
 		toggle.setHorizontalAlignment(SwingConstants.LEFT);
-		toggle.setToolTipText(expanded ? "Collapse " + title : "Expand " + title);
+		toggle.setToolTipText(expanded ? title + " inklappen" : title + " uitklappen");
 		toggle.setAlignmentX(Component.LEFT_ALIGNMENT);
 		toggle.setMaximumSize(new Dimension(Integer.MAX_VALUE, NAV_BUTTON_HEIGHT));
 		return toggle;
 	}
 
 	private static JLabel statusBadge(ZweetnekkenModels.EventStatus status) {
-		String text = status == null ? "UNKNOWN" : status.name();
+		String text = status == null ? "ONBEKEND" : statusLabel(status);
 		Color color = status == ZweetnekkenModels.EventStatus.SUBMITTED || status == ZweetnekkenModels.EventStatus.APPROVED
 				? CONNECTED_COLOR
 				: status == ZweetnekkenModels.EventStatus.FAILED || status == ZweetnekkenModels.EventStatus.REJECTED
@@ -1091,12 +1162,25 @@ public class ZweetnekkenPanel extends PluginPanel {
 						: status == ZweetnekkenModels.EventStatus.DRAFT ? GOLD : new Color(150, 154, 158);
 		JLabel badge = new JLabel(text, SwingConstants.CENTER);
 		badge.setForeground(color);
-		badge.setFont(badge.getFont().deriveFont(Font.BOLD, 10f));
+		badge.setFont(ZweetnekkenTheme.font(true));
 		badge.setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createLineBorder(new Color(color.getRed(), color.getGreen(), color.getBlue(), 135)),
 				BorderFactory.createEmptyBorder(3, 6, 3, 6)));
 		badge.setAlignmentY(Component.CENTER_ALIGNMENT);
 		return badge;
+	}
+
+	private static String statusLabel(ZweetnekkenModels.EventStatus status) {
+		switch (status) {
+			case PENDING: return "IN WACHTRIJ";
+			case UPLOADING: return "UPLOADEN";
+			case DRAFT: return "CONCEPT";
+			case SUBMITTED: return "INGEDIEND";
+			case APPROVED: return "GOEDGEKEURD";
+			case REJECTED: return "AFGEWEZEN";
+			case FAILED: return "MISLUKT";
+			default: return "ONBEKEND";
+		}
 	}
 
 	private static JPanel fieldRow(String name, Component field) {
@@ -1122,7 +1206,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 			if (image == null)
 				throw new IllegalArgumentException("Unsupported evidence image");
 			Window owner = SwingUtilities.getWindowAncestor(this);
-			JDialog dialog = new JDialog(owner, "Evidence", Dialog.ModalityType.APPLICATION_MODAL);
+			JDialog dialog = new JDialog(owner, "Bewijs", Dialog.ModalityType.APPLICATION_MODAL);
 			dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 			dialog.setResizable(true);
 			dialog.setMinimumSize(new Dimension(360, 260));
@@ -1132,15 +1216,64 @@ public class ZweetnekkenPanel extends PluginPanel {
 			dialog.setLocationRelativeTo(this);
 			dialog.setVisible(true);
 		} catch (Exception e) {
-			JOptionPane.showMessageDialog(this, "Evidence file is unavailable.");
+			JOptionPane.showMessageDialog(this, "Het bewijsbestand is niet beschikbaar.");
 		}
 	}
 
 	static JPanel verticalPanel() {
 		JPanel panel = new JPanel();
 		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		panel.setBackground(PANEL_BACKGROUND);
 		return panel;
+	}
+
+	private static JPanel fullWidthColumn() {
+		JPanel panel = new JPanel(new FullWidthColumnLayout());
+		panel.setBackground(PANEL_BACKGROUND);
+		return panel;
+	}
+
+	/** Keeps each profile row flush with the available content column. */
+	private static final class FullWidthColumnLayout implements LayoutManager {
+		@Override public void addLayoutComponent(String name, Component component) { }
+		@Override public void removeLayoutComponent(Component component) { }
+
+		@Override
+		public Dimension preferredLayoutSize(java.awt.Container parent) {
+			synchronized (parent.getTreeLock()) {
+				Insets insets = parent.getInsets();
+				int width = 0;
+				int height = 0;
+				for (Component child : parent.getComponents()) {
+					if (!child.isVisible()) continue;
+					Dimension preferred = child.getPreferredSize();
+					width = Math.max(width, preferred.width);
+					height += preferred.height;
+				}
+				return new Dimension(insets.left + width + insets.right,
+						insets.top + height + insets.bottom);
+			}
+		}
+
+		@Override
+		public Dimension minimumLayoutSize(java.awt.Container parent) {
+			return preferredLayoutSize(parent);
+		}
+
+		@Override
+		public void layoutContainer(java.awt.Container parent) {
+			synchronized (parent.getTreeLock()) {
+				Insets insets = parent.getInsets();
+				int width = Math.max(0, parent.getWidth() - insets.left - insets.right);
+				int y = insets.top;
+				for (Component child : parent.getComponents()) {
+					if (!child.isVisible()) continue;
+					int height = child.getPreferredSize().height;
+					child.setBounds(insets.left, y, width, height);
+					y += height;
+				}
+			}
+		}
 	}
 
 	private static JPanel fullWidthVerticalPanel() {
@@ -1151,22 +1284,23 @@ public class ZweetnekkenPanel extends PluginPanel {
 			}
 		};
 		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		panel.setBackground(PANEL_BACKGROUND);
 		return panel;
 	}
 
-	private static JPanel card() {
-		JPanel panel = new JPanel() {
-			@Override
-			public Dimension getMaximumSize() {
-				return new Dimension(Integer.MAX_VALUE, super.getPreferredSize().height);
-			}
-		};
-		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		panel.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
-		panel.setAlignmentX(Component.LEFT_ALIGNMENT);
-		return panel;
+	static JPanel blackDivider(int height) {
+		JPanel divider = new JPanel();
+		divider.setOpaque(true);
+		divider.setBackground(PANEL_BACKGROUND);
+		divider.setPreferredSize(new Dimension(1, height));
+		divider.setMinimumSize(new Dimension(1, height));
+		divider.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
+		divider.setAlignmentX(Component.LEFT_ALIGNMENT);
+		return divider;
+	}
+
+	static JPanel card() {
+		return ZweetnekkenTheme.surface();
 	}
 
 	static JScrollPane scroll(JPanel panel) {
@@ -1175,24 +1309,26 @@ public class ZweetnekkenPanel extends PluginPanel {
 
 	static JScrollPane scroll(JPanel panel, boolean reserveScrollbarSpace) {
 		ViewportWidthPanel viewport = new ViewportWidthPanel();
+		viewport.setBorder(BorderFactory.createEmptyBorder(0, 6, 8, 6));
 		viewport.add(panel, BorderLayout.NORTH);
 		JScrollPane scroll = new JScrollPane(viewport);
 		scroll.setBorder(null);
-		scroll.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		scroll.getViewport().setBackground(ColorScheme.DARK_GRAY_COLOR);
+		scroll.setBackground(PANEL_BACKGROUND);
+		scroll.getViewport().setBackground(PANEL_BACKGROUND);
 		scroll.getViewport().setOpaque(true);
 		scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-		// Keep the sidebar width stable when Extra Settings changes the available height.
+		// Keep the sidebar width stable when the settings actions expand or collapse.
 		scroll.setVerticalScrollBarPolicy(reserveScrollbarSpace
 				? JScrollPane.VERTICAL_SCROLLBAR_ALWAYS : JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
 		scroll.getVerticalScrollBar().setUnitIncrement(16);
+		scroll.getVerticalScrollBar().setPreferredSize(new Dimension(6, 0));
 		return scroll;
 	}
 
 	private static final class ViewportWidthPanel extends JPanel implements Scrollable {
 		private ViewportWidthPanel() {
 			super(new BorderLayout());
-			setBackground(ColorScheme.DARK_GRAY_COLOR);
+			setBackground(PANEL_BACKGROUND);
 		}
 
 		@Override
@@ -1225,24 +1361,25 @@ public class ZweetnekkenPanel extends PluginPanel {
 	private static JLabel label(String text, boolean bold) {
 		JLabel label = new JLabel(html(esc(text)));
 		label.setForeground(Color.WHITE);
-		if (bold)
-			label.setFont(label.getFont().deriveFont(Font.BOLD));
+		label.setFont((bold ? net.runelite.client.ui.FontManager.getRunescapeBoldFont()
+				: net.runelite.client.ui.FontManager.getRunescapeSmallFont()));
 		label.setAlignmentX(Component.LEFT_ALIGNMENT);
-		label.setMaximumSize(new Dimension(PANEL_WIDTH, 40));
+		label.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
 		return label;
 	}
 
 	static JLabel muted(String text) {
-		JLabel label = new JLabel(html("<span style='color:#aaaaaa'>" + esc(text) + "</span>"));
-		label.setForeground(Color.LIGHT_GRAY);
+		JLabel label = new JLabel(html("<span style='color:#96968c'>" + esc(text) + "</span>"));
+		label.setForeground(TEXT_MUTED);
+		label.setFont(ZweetnekkenTheme.font(false));
 		label.setAlignmentX(Component.LEFT_ALIGNMENT);
-		label.setMaximumSize(new Dimension(PANEL_WIDTH, 40));
+		label.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
 		return label;
 	}
 
 	private static JLabel wrappedMuted(String text) {
 		JLabel label = muted(text);
-		label.setMaximumSize(new Dimension(PANEL_WIDTH, Integer.MAX_VALUE));
+		label.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
 		return label;
 	}
 
@@ -1250,7 +1387,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 		JPanel p = new JPanel(new java.awt.GridLayout(1, 2, 4, 0));
 		p.setOpaque(false);
 		p.setAlignmentX(Component.LEFT_ALIGNMENT);
-		p.setMaximumSize(new Dimension(PANEL_WIDTH, 20));
+		p.setMaximumSize(new Dimension(Integer.MAX_VALUE, 20));
 		JLabel left = new JLabel(leftLabel + " " + leftValue);
 		left.setForeground(Color.WHITE);
 		JLabel right = new JLabel((rightLabel + " " + rightValue).trim());
@@ -1263,7 +1400,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 	static JLabel sectionHeading(String text) {
 		JLabel heading = new JLabel(text);
 		heading.setForeground(new Color(155, 158, 161));
-		heading.setFont(heading.getFont().deriveFont(Font.BOLD, 12f));
+		heading.setFont(ZweetnekkenTheme.font(true));
 		heading.setAlignmentX(Component.LEFT_ALIGNMENT);
 		return heading;
 	}
@@ -1271,7 +1408,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 	private static JLabel competitionSectionHeading(String text, Color color) {
 		JLabel heading = new JLabel(text);
 		heading.setForeground(color);
-		heading.setFont(heading.getFont().deriveFont(Font.BOLD, 11f));
+		heading.setFont(ZweetnekkenTheme.font(true));
 		heading.setAlignmentX(Component.LEFT_ALIGNMENT);
 		return heading;
 	}
@@ -1281,7 +1418,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 		JPanel row = new JPanel(new GridLayout(1, 2, 8, 0));
 		row.setOpaque(false);
 		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-		row.setMaximumSize(new Dimension(PANEL_WIDTH, 34));
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
 		row.add(stat(leftLabel, leftValue, leftColor));
 		row.add(stat(rightLabel, rightValue, rightColor));
 		return row;
@@ -1291,11 +1428,11 @@ public class ZweetnekkenPanel extends PluginPanel {
 		JPanel stat = new JPanel(new BorderLayout(0, 1));
 		stat.setOpaque(false);
 		JLabel name = new JLabel(label);
-		name.setForeground(new Color(145, 148, 151));
-		name.setFont(name.getFont().deriveFont(Font.BOLD, 11f));
+		name.setForeground(TEXT_MUTED);
+		name.setFont(ZweetnekkenTheme.font(false));
 		JLabel amount = new JLabel(value);
 		amount.setForeground(color);
-		amount.setFont(amount.getFont().deriveFont(Font.BOLD, 14f));
+		amount.setFont(ZweetnekkenTheme.font(true));
 		stat.add(name, BorderLayout.NORTH);
 		stat.add(amount, BorderLayout.CENTER);
 		return stat;
@@ -1305,32 +1442,34 @@ public class ZweetnekkenPanel extends PluginPanel {
 		JPanel row = new JPanel(new BorderLayout(8, 0));
 		row.setOpaque(false);
 		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-		row.setMaximumSize(new Dimension(PANEL_WIDTH, 22));
-		JLabel label = sectionHeading("NEXT RANK");
-		JLabel value = new JLabel(rankName, SwingConstants.RIGHT);
-		value.setForeground(SCORE_COLOR);
-		value.setFont(value.getFont().deriveFont(Font.BOLD, 13f));
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22));
+		JLabel label = new JLabel("VOLGENDE · " + rankName, SwingConstants.LEFT);
+		label.setFont(ZweetnekkenTheme.font(true));
+		label.setForeground(Color.WHITE);
 		row.add(label, BorderLayout.WEST);
-		row.add(value, BorderLayout.EAST);
 		return row;
 	}
 
 	private static JPanel weeklyTimer(String timing) {
-		JPanel p = new JPanel(new BorderLayout(8, 0));
-		p.setBackground(new Color(38, 41, 44));
+		JPanel p = new JPanel();
+		p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+		p.setBackground(CARD_BACKGROUND);
 		p.setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createMatteBorder(0, 3, 0, 0, GOLD),
 				BorderFactory.createEmptyBorder(6, 8, 6, 8)));
 		p.setAlignmentX(Component.LEFT_ALIGNMENT);
-		p.setMaximumSize(new Dimension(PANEL_WIDTH, 34));
-		JLabel title = new JLabel("WEEKLY EVENTS");
+		p.setMaximumSize(new Dimension(Integer.MAX_VALUE, 42));
+		JLabel title = new JLabel("WEKELIJKSE EVENTS");
 		title.setForeground(new Color(155, 158, 161));
-		title.setFont(title.getFont().deriveFont(Font.BOLD, 11f));
-		JLabel value = new JLabel(timing.toUpperCase(Locale.ROOT), SwingConstants.RIGHT);
+		title.setFont(ZweetnekkenTheme.font(true));
+		title.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JLabel value = new JLabel(timing.toUpperCase(Locale.ROOT));
 		value.setForeground(SCORE_COLOR);
-		value.setFont(value.getFont().deriveFont(Font.BOLD, 12f));
-		p.add(title, BorderLayout.WEST);
-		p.add(value, BorderLayout.EAST);
+		value.setFont(ZweetnekkenTheme.font(true));
+		value.setAlignmentX(Component.LEFT_ALIGNMENT);
+		p.add(title);
+		p.add(Box.createVerticalStrut(2));
+		p.add(value);
 		return p;
 	}
 
@@ -1359,22 +1498,22 @@ public class ZweetnekkenPanel extends PluginPanel {
 		p.setOpaque(false);
 		p.setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
 		p.setAlignmentX(Component.LEFT_ALIGNMENT);
-		p.setMaximumSize(new Dimension(PANEL_WIDTH, 28));
-		p.setPreferredSize(new Dimension(PANEL_WIDTH, 28));
+		p.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+		p.setPreferredSize(new Dimension(0, 28));
 
 		JLabel rankLabel = new JLabel(String.valueOf(rank), SwingConstants.CENTER);
 		rankLabel.setForeground(rank <= RANK_COLORS.length
 				? RANK_COLORS[Math.max(0, rank - 1)]
 				: highlighted ? accent : new Color(160, 163, 166));
-		rankLabel.setFont(rankLabel.getFont().deriveFont(Font.BOLD, 12f));
+		rankLabel.setFont(ZweetnekkenTheme.font(true));
 		rankLabel.setPreferredSize(new Dimension(18, 18));
 		JLabel nameLabel = new JLabel(name);
 		nameLabel.setForeground(new Color(225, 225, 225));
-		nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD, 12f));
+		nameLabel.setFont(ZweetnekkenTheme.font(true));
 		nameLabel.setToolTipText(name);
 		JLabel scoreLabel = new JLabel(styledScore(score), SwingConstants.RIGHT);
 		scoreLabel.setForeground(SCORE_COLOR);
-		scoreLabel.setFont(scoreLabel.getFont().deriveFont(Font.BOLD, 12f));
+		scoreLabel.setFont(ZweetnekkenTheme.font(true));
 		scoreLabel.setToolTipText(score);
 		int scoreWidth = Math.max(minimumScoreWidth, Math.min(90, scoreLabel.getPreferredSize().width));
 		scoreLabel.setPreferredSize(new Dimension(scoreWidth, 18));
@@ -1394,7 +1533,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 		int split = escaped.lastIndexOf(' ');
 		if (split < 0)
 			return escaped;
-		return "<html>" + escaped.substring(0, split) + " <span style='color:#9da1a4;font-size:10px'>"
+		return "<html>" + escaped.substring(0, split) + " <span style='color:#96968c'>"
 				+ escaped.substring(split + 1) + "</span></html>";
 	}
 
@@ -1411,7 +1550,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 		boolean botwFinished = competitions.botw != null && isFinished(competitions.botw);
 		boolean sotwFinished = competitions.sotw != null && isFinished(competitions.sotw);
 		if (botwFinished && sotwFinished) {
-			return "Competitions Ended";
+			return "Competities afgelopen";
 		}
 		String botwEnd = competitions.botw == null ? null : competitions.botw.endsAt;
 		String sotwEnd = competitions.sotw == null ? null : competitions.sotw.endsAt;
@@ -1426,27 +1565,45 @@ public class ZweetnekkenPanel extends PluginPanel {
 		JPanel p = verticalPanel();
 		p.setOpaque(false);
 		p.setAlignmentX(Component.LEFT_ALIGNMENT);
-		p.setMaximumSize(new Dimension(PANEL_WIDTH, 40));
+		p.setMaximumSize(new Dimension(Integer.MAX_VALUE, showRemaining ? 44 : 26));
 		long target = Math.max(1, current + remaining);
+		JPanel caption = new JPanel(new BorderLayout(5, 0));
+		caption.setOpaque(false);
+		caption.setAlignmentX(Component.LEFT_ALIGNMENT);
+		caption.setMaximumSize(new Dimension(Integer.MAX_VALUE, 15));
+		JLabel metric = new JLabel(name + "-punten");
+		metric.setForeground(TEXT_MUTED);
+		metric.setFont(ZweetnekkenTheme.font(false));
+		JLabel value = new JLabel(number(current) + " / " + number(target), SwingConstants.RIGHT);
+		value.setForeground(accent);
+		value.setFont(ZweetnekkenTheme.font(true));
+		caption.add(metric, BorderLayout.WEST);
+		caption.add(value, BorderLayout.EAST);
+		p.add(caption);
 		JProgressBar bar = new JProgressBar(0, 1000);
 		bar.setValue((int) Math.min(1000, current * 1000 / target));
-		bar.setStringPainted(true);
-		bar.setString(name + ": " + number(current) + " / " + number(target));
+		bar.setStringPainted(false);
 		bar.setForeground(accent);
-		bar.setBackground(new Color(43, 46, 49));
+		bar.setBackground(new Color(52, 55, 58));
 		bar.setBorder(BorderFactory.createEmptyBorder());
-		bar.setMaximumSize(new Dimension(PANEL_WIDTH, 21));
-		bar.setFont(bar.getFont().deriveFont(Font.BOLD, 11f));
+		bar.setPreferredSize(new Dimension(100, 7));
+		bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 7));
 		bar.setAlignmentX(Component.LEFT_ALIGNMENT);
+		p.add(Box.createVerticalStrut(3));
 		p.add(bar);
-		if (showRemaining) p.add(muted(number(remaining) + " remaining"));
+		if (showRemaining) {
+			JLabel remainingLabel = muted(remaining <= 0 ? "Vereiste behaald" : number(remaining) + " resterend");
+			remainingLabel.setFont(ZweetnekkenTheme.font(false));
+			p.add(Box.createVerticalStrut(2));
+			p.add(remainingLabel);
+		}
 		return p;
 	}
 
 	private static String eventLabel(EvidenceStore.Record record, List<EvidenceStore.Record> group) {
 		String type = record.metadata == null ? null : record.metadata.eventType;
 		if (type == null)
-			return "SUBMISSION";
+			return "INZENDING";
 		java.util.Set<String> groupedTypes = new java.util.HashSet<>();
 		if (group != null)
 			for (EvidenceStore.Record member : group)
@@ -1473,7 +1630,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 			case "loot":
 				return "LOOT DROP";
 			case "personal_best":
-				return "PERSONAL BEST";
+				return "PB";
 			case "collection_log":
 				return "COLLECTION LOG";
 			case "pet":
@@ -1491,7 +1648,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 
 	private static String friendlyMethod(String method) {
 		if (method == null || method.isBlank() || "unknown".equalsIgnoreCase(method))
-			return "game activity";
+			return "gameactiviteit";
 		return method.replace('_', ' ');
 	}
 
@@ -1520,7 +1677,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 
 	private static String title(EvidenceStore.Record record) {
 		if (record.metadata == null)
-			return "Submission";
+			return "Inzending";
 		if (record.metadata.items != null && !record.metadata.items.isEmpty())
 			return value(record.metadata.items.get(0).name);
 		String detailTitle = firstDetail(record, "itemName", "petName", "taskName");
@@ -1592,13 +1749,13 @@ public class ZweetnekkenPanel extends PluginPanel {
 		try {
 			Duration d = Duration.between(Instant.now(), Instant.parse(start));
 			if (d.isNegative())
-				return "Starting now";
+				return "Start nu";
 			long days = d.toDays();
 			long hours = d.minusDays(days).toHours();
 			long minutes = d.minusDays(days).minusHours(hours).toMinutes();
-			return "Starts in " + (days > 0 ? days + "d " : "") + (hours > 0 ? hours + "h " : "") + minutes + "m";
+			return "Start over " + (days > 0 ? days + "d " : "") + (hours > 0 ? hours + "u " : "") + minutes + "m";
 		} catch (RuntimeException e) {
-			return "Starts soon";
+			return "Start binnenkort";
 		}
 	}
 
@@ -1606,8 +1763,8 @@ public class ZweetnekkenPanel extends PluginPanel {
 		try {
 			Duration d = Duration.between(Instant.now(), Instant.parse(end));
 			if (d.isNegative())
-				return "Ended";
-			return "Ends in " + d.toDays() + "d " + d.minusDays(d.toDays()).toHours() + "h";
+				return "Afgelopen";
+			return "Eindigt over " + d.toDays() + "d " + d.minusDays(d.toDays()).toHours() + "u";
 		} catch (RuntimeException e) {
 			return "";
 		}
@@ -1682,7 +1839,7 @@ public class ZweetnekkenPanel extends PluginPanel {
 
 		private AspectRatioIconLabel() {
 			setOpaque(true);
-			setBackground(ColorScheme.DARK_GRAY_COLOR);
+			setBackground(PANEL_BACKGROUND);
 			addComponentListener(new ComponentAdapter() {
 				@Override
 				public void componentResized(ComponentEvent event) {
@@ -1809,3 +1966,4 @@ public class ZweetnekkenPanel extends PluginPanel {
 		return i;
 	}
 }
+

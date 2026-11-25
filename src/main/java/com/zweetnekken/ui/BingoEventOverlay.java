@@ -9,6 +9,7 @@ import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.Player;
@@ -19,8 +20,8 @@ import net.runelite.client.ui.overlay.components.TitleComponent;
 
 public class BingoEventOverlay extends OverlayPanel
 {
-	private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("MMM d, yyyy");
-	private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("h:mm a");
+	private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.forLanguageTag("nl"));
+	private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
 	private final BingoService bingo;
 	private final ZweetnekkenConfig config;
 	private final Client client;
@@ -44,13 +45,13 @@ public class BingoEventOverlay extends OverlayPanel
 		ZweetnekkenModels.BingoEvent event = bingo.current();
 		if (event == null || !event.active) return null;
 		Color color = config.bingoOverlayTextColor() == null ? Color.WHITE : config.bingoOverlayTextColor();
-		String title = event.eventTitle == null || event.eventTitle.isBlank() ? "Bingo Event" : event.eventTitle;
+		String title = event.eventTitle == null || event.eventTitle.isBlank() ? "Bingo-event" : event.eventTitle;
 		ZweetnekkenModels.BingoTeam team = bingo.currentTeam();
 		String teamName = team == null || team.teamName == null || team.teamName.isBlank()
-			? "Unassigned" : team.teamName;
+			? "Niet toegewezen" : team.teamName;
 		Player localPlayer = client.getLocalPlayer();
 		String rsn = localPlayer == null || localPlayer.getName() == null || localPlayer.getName().isBlank()
-			? "Not logged in" : localPlayer.getName();
+			? "Niet ingelogd" : localPlayer.getName();
 		LocalDateTime now = LocalDateTime.now();
 		panelComponent.getChildren().clear();
 		panelComponent.getChildren().add(TitleComponent.builder().text(title).color(color).build());
@@ -61,3 +62,4 @@ public class BingoEventOverlay extends OverlayPanel
 		return super.render(graphics);
 	}
 }
+

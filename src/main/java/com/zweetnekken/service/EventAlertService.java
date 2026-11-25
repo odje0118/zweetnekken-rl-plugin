@@ -256,7 +256,7 @@ public class EventAlertService
 	{
 		String formatted = new ChatMessageBuilder()
 			.append(ChatColorType.HIGHLIGHT)
-			.append("Zweetnekken Event Alert ~ ")
+			.append("Zweetnekken-eventmelding ~ ")
 			.append(alert)
 			.build();
 		String color = String.format("%06x", config.eventAlertColor().getRGB() & 0xffffff);
@@ -272,3 +272,4 @@ public class EventAlertService
 		overlayExpiresAt = 0L;
 	}
 }
+

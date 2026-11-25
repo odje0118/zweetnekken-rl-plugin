@@ -15,9 +15,9 @@ import net.runelite.client.ui.overlay.components.TitleComponent;
 
 public class CollectionLogSyncOverlay extends OverlayPanel
 {
-	static final String MESSAGE = "Please open your collection log to sync with Zweetnekken";
-	static final String READING_MESSAGE = "Reading your collection log for Zweetnekken...";
-	static final String SYNCING_MESSAGE = "Syncing your collection log with Zweetnekken...";
+	static final String MESSAGE = "Open je collection log om te synchroniseren met Zweetnekken";
+	static final String READING_MESSAGE = "Collection log van Zweetnekken wordt ingelezen…";
+	static final String SYNCING_MESSAGE = "Collection log synchroniseren met Zweetnekken…";
 	private static final Color BACKGROUND = new Color(24, 79, 145, 235);
 	private static final Color TEXT = new Color(255, 72, 72);
 	private final Client client;
@@ -55,3 +55,4 @@ public class CollectionLogSyncOverlay extends OverlayPanel
 		return super.render(graphics);
 	}
 }
+

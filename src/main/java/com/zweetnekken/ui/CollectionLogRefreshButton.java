@@ -19,7 +19,7 @@ import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.api.events.BeforeRender;
 
-/** Legacy collection-log refresh button; currently not wired into the plugin. */
+/** Adds a manual sync button to the collection-log interface. */
 @Singleton
 public class CollectionLogRefreshButton
 {
@@ -211,7 +211,7 @@ public class CollectionLogRefreshButton
 		Widget sourceText = sourceChildren.length > SEARCH_ICON_CHILD + 1
 			? sourceChildren[SEARCH_ICON_CHILD + 1] : null;
 		buttonText = buttonLayer.createChild(-1, WidgetType.TEXT)
-			.setText("A")
+			.setText("Z")
 			.setTextColor(FONT_COLOR_INACTIVE)
 			.setPos(0, 0)
 			.setSize(BUTTON_WIDTH, height)
@@ -224,7 +224,7 @@ public class CollectionLogRefreshButton
 		}
 		buttonText.setOnMouseOverListener((JavaScriptCallback) ev -> setActive(true));
 		buttonText.setOnMouseLeaveListener((JavaScriptCallback) ev -> setActive(false));
-		buttonText.setAction(0, "Refresh for Zweetnekken");
+		buttonText.setAction(0, "Vernieuwen voor Zweetnekken");
 		buttonText.setOnOpListener((JavaScriptCallback) ev -> refreshCollectionLog());
 		buttonText.revalidate();
 		buttonLayer.revalidate();
@@ -288,3 +288,4 @@ public class CollectionLogRefreshButton
 		return client.getVarbitValue(VarbitID.COLLECTION_POH_HOST_BOOK_OPEN) == 1;
 	}
 }
+

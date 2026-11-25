@@ -1,6 +1,7 @@
 package com.zweetnekken.ui;
 
 import com.zweetnekken.collection.CollectionLogSyncService;
+import com.zweetnekken.model.ZweetnekkenModels;
 import com.zweetnekken.service.ZweetnekkenDataService;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -62,7 +63,7 @@ public class CollectionLogAutoSync
 		if (!data.isCurrentPlayerClanMember()) return;
 		if (uploadInProgress)
 		{
-			message("A sync is already in progress.");
+			message("Synchronisatie is al bezig.");
 			return;
 		}
 		attemptedAccountHash = 0L;
@@ -73,7 +74,7 @@ public class CollectionLogAutoSync
 		else
 		{
 			armCapture();
-			message("Open the collection-log Search to load data for Zweetnekken...");
+			message("Open de zoekfunctie van je collection log om de gegevens voor Zweetnekken te laden…");
 		}
 	}
 
@@ -102,7 +103,7 @@ public class CollectionLogAutoSync
 			waitingForCapture = false;
 			log.error("Automatic collection log sync timed out waiting for item rows: openedAtTick={}, currentTick={}",
 				openedAtTick, client.getTickCount());
-			message("Collection data did not load. Close and reopen your collection log to try again.");
+			message("De collection-loggegevens zijn niet geladen. Sluit je collection log en open deze opnieuw.");
 		}
 	}
 
@@ -122,7 +123,7 @@ public class CollectionLogAutoSync
 		}
 		if (data.connection() != ZweetnekkenDataService.Connection.CONNECTED)
 		{
-			message("Zweetnekken is not connected. Check your Auth Code in plugin config.");
+			message("Zweetnekken is niet verbonden. Controleer je koppelcode bij de plugininstellingen.");
 			return;
 		}
 		waitingForCapture = false;
@@ -130,14 +131,14 @@ public class CollectionLogAutoSync
 		attemptedAccountHash = client.getAccountHash();
 		if (collectionLogSync.syncCapturedItems(this::onSyncFinished))
 		{
-			message("Syncing your collection log with Zweetnekken...");
+			message("Je collection log synchroniseren met Zweetnekken…");
 		}
 		else
 		{
 			uploadInProgress = false;
 			attemptedAccountHash = 0L;
 			log.error("Automatic collection log sync lost capture readiness before upload");
-			message("Collection data is still loading. Wait a moment and try again.");
+			message("De collection-loggegevens worden nog geladen. Wacht even en probeer het opnieuw.");
 		}
 	}
 
@@ -148,11 +149,14 @@ public class CollectionLogAutoSync
 			uploadInProgress = false;
 			if (successful)
 			{
-				message("Your collection log has been synced with Zweetnekken.");
+				ZweetnekkenModels.Profile profile = data.profile();
+				String playerName = profile == null || profile.member == null ? null : profile.member.name;
+				if (playerName != null && !playerName.isBlank()) data.refreshProfile(playerName);
+				message("Je collection log is gesynchroniseerd met Zweetnekken.");
 			}
 			else
 			{
-				message("Zweetnekken queued your collection log and will retry it automatically.");
+				message("Zweetnekken heeft je collection log in de wachtrij gezet en probeert het later opnieuw.");
 			}
 		});
 	}
@@ -174,3 +178,4 @@ public class CollectionLogAutoSync
 		return CollectionLogSyncOverlay.MESSAGE;
 	}
 }
+

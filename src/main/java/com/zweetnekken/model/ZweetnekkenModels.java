@@ -14,18 +14,102 @@ public final class ZweetnekkenModels
 	{
 		public Member member;
 		public Standings standings;
+		public CombatAchievementProgress combatAchievements;
+		public CollectionLogProgress collectionLog;
 		public String updatedAt;
+	}
+
+	public static final class ClanLeaderboard
+	{
+		public List<ClanLeaderboardMember> members = new ArrayList<>();
+		public int totalMembers;
+		public String updatedAt;
+	}
+
+	public static final class ClanLeaderboardMember
+	{
+		public String discordId;
+		public String name;
+		public String avatarUrl;
+		public String currentRank;
+		public int clanRankOrder;
+		public long pvmPoints;
+		public long clanPoints;
 	}
 
 	public static final class Member
 	{
 		public String name;
+		public List<String> linkedNames = new ArrayList<>();
 		public String discordId;
 		public String avatarUrl;
 		public String rosterRank;
 		public String status;
 		public boolean canSubmitLoot;
 	}
+
+	public static final class PvmDiaryStatus
+	{
+		public int version;
+		public String catalogueVersion;
+		public String discordId;
+		public String fetchedAt;
+		public long earnedPoints;
+		public long totalPoints;
+		public int completedTiers;
+		public int totalTiers;
+		public PvmDiaryDelivery delivery;
+		public List<PvmDiaryCategory> categories = new ArrayList<>();
+		public List<PvmDiaryActivity> activities = new ArrayList<>();
+		public List<PvmDiarySubmission> pendingSubmissions = new ArrayList<>();
+	}
+
+	public static final class PvmDiaryDelivery
+	{
+		public long outstandingAwards;
+		public long outstandingDeductions;
+		public boolean reconciliationRequired;
+	}
+
+	public static final class PvmDiaryCategory
+	{
+		public String name;
+		public long earnedPoints;
+		public long totalPoints;
+		public int completedTiers;
+		public int totalTiers;
+	}
+
+	public static final class PvmDiaryActivity
+	{
+		public String id;
+		public String name;
+		public String category;
+		public int teamSize;
+		public String kind;
+		public List<PvmDiaryTier> tiers = new ArrayList<>();
+		public long earnedPoints;
+		public PvmDiaryBestResult bestResult;
+		public PvmDiaryTier nextTarget;
+		public int pendingCount;
+	}
+
+	public static final class PvmDiaryBestResult
+	{
+		public Long value;
+		public String label;
+	}
+
+	public static final class PvmDiaryTier
+	{
+		public String tier;
+		public Long target;
+		public long points;
+		public String targetLabel;
+		public boolean completed;
+	}
+
+	public static final class PvmDiarySubmission { }
 
 	public static final class Standings
 	{
@@ -352,6 +436,7 @@ public final class ZweetnekkenModels
 		public int totalPoints;
 		public int totalPossiblePoints;
 		public String currentTier;
+		public String updatedAt;
 		public Map<String, TierProgress> tierProgress = new LinkedHashMap<>();
 		public List<CombatTask> tasks = new ArrayList<>();
 	}
@@ -406,4 +491,13 @@ public final class ZweetnekkenModels
 		public int obtained;
 		public int total;
 	}
+
+	public static final class CollectionLogProgress
+	{
+		public int obtainedCount;
+		public int totalCount;
+		public String updatedAt;
+		public Map<String, CollectionCategoryProgress> categories = new LinkedHashMap<>();
+	}
 }
+

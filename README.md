@@ -9,6 +9,7 @@ RuneLite Plugin Hub project for Zweetnekken clan.
 - Event alerts delivered to game chat with an optional in-game overlay.
 - Evidence screenshots always include the player's RSN, even when chat is closed. Enable **Bingo Overlay → Screenshot only** to include active Bingo details only in captured evidence; leave it off to keep the normal in-game Bingo overlay.
 - Automatic full-client evidence capture for eligible loot, collection-log unlocks, pets, Combat Achievement tiers, and PBs.
+- PvM Diary goals, progress, and evidence for players given access by clan staff. The backend supplies the catalogue, rollout settings, and supported chat patterns.
 - Durable local outbox and editable loot-submission drafts.
 - Raid scoreboard or observed boss-interaction party estimates, including same-clan participant RSNs while excluding guest names.
 - Live and bulk personal-best sync, including Adventure Log team-size records.

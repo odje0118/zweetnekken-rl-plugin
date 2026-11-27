@@ -11,93 +11,93 @@ public interface ZweetnekkenConfig extends Config
 {
 	String GROUP = "zweetnekken";
 
-	@ConfigSection(name = "Authentication", description = "Connects to the external Zweetnekken backend. The plugin sends your RSN/account identifier, loot and event details, party/clan data, personal bests, skill levels/XP, and full-client evidence screenshots. Screenshots may include visible game UI/chat and may be forwarded to the Zweetnekken Discord for review.", position = 0)
+	@ConfigSection(name = "Accountkoppeling", description = "Verbindt met de Zweetnekken-backend. De plugin verstuurt je RSN/account-ID, loot- en eventgegevens, groeps- en claninformatie, persoonlijke records, skillniveaus en XP, en screenshots van de volledige client. Screenshots kunnen zichtbare game-interface en chat bevatten en ter beoordeling worden doorgestuurd naar de Zweetnekken-Discord.", position = 0)
 	String AUTH = "authentication";
 
-	@ConfigSection(name = "Evidence", description = "Screenshot and upload behavior", position = 1)
+	@ConfigSection(name = "Bewijs", description = "Instellingen voor screenshots en uploads", position = 1)
 	String EVIDENCE = "evidence";
 
-	@ConfigSection(name = "Appearance", description = "Customize Zweetnekken side panel", position = 2)
+	@ConfigSection(name = "Uiterlijk", description = "Pas het Zweetnekken-zijpaneel aan", position = 2)
 	String APPEARANCE = "appearance";
 
-	@ConfigSection(name = "Event Alerts", description = "Clan event announcements", position = 3)
+	@ConfigSection(name = "Eventmeldingen", description = "Aankondigingen van clan-events", position = 3)
 	String EVENT_ALERTS = "eventAlerts";
 
-	@ConfigSection(name = "Bingo Overlay", description = "Active bingo event overlay", position = 4)
+	@ConfigSection(name = "Bingo-overlay", description = "Overlay voor het actieve bingo-event", position = 4)
 	String BINGO_OVERLAY = "bingoOverlay";
 
-	@ConfigItem(keyName = "authenticationCode", name = "Permanent link code",
-		description = "Use /linkplugin in Zweetnekken Discord and paste the code here. This connects to the external Zweetnekken backend; RSN/account, loot/events, party/clan data, PBs, skill levels/XP, and evidence screenshots are sent. Screenshots may be forwarded to clan Discord for review.",
+	@ConfigItem(keyName = "authenticationCode", name = "Permanente koppelcode",
+		description = "Gebruik /linkplugin in de Zweetnekken-Discord en plak de code hier. Hiermee verbind je met de Zweetnekken-backend. Je RSN/accountgegevens, loot en events, groeps- en claninformatie, PB's, skillniveaus en XP, en screenshots worden verstuurd. Screenshots kunnen ter beoordeling worden doorgestuurd naar de clan-Discord.",
 		section = AUTH, position = 0, secret = true)
 	default String authenticationCode() { return ""; }
 
-	@ConfigItem(keyName = "animatedBanner", name = "Animated banner",
-		description = "Show the animated clan banner when a GIF is available; disable to use the static banner",
+	@ConfigItem(keyName = "animatedBanner", name = "Geanimeerde banner",
+		description = "Toon de geanimeerde clanbanner als er een GIF beschikbaar is. Schakel dit uit voor de statische banner.",
 		section = APPEARANCE, position = 0)
 	default boolean animatedBanner() { return true; }
 
-	@ConfigItem(keyName = "includeSidebar", name = "Include sidebar",
-		description = "Include the RuneLite sidebar in evidence screenshots",
+	@ConfigItem(keyName = "includeSidebar", name = "Zijbalk meenemen",
+		description = "Neem de RuneLite-zijbalk op in bewijsscreenshots",
 		section = EVIDENCE, position = 0)
 	default boolean includeSidebar() { return true; }
 
-	@ConfigItem(keyName = "hidePrivateMessages", name = "Hide private messages",
-		description = "Temporarily hide split private chat while capturing evidence",
+	@ConfigItem(keyName = "hidePrivateMessages", name = "Privéberichten verbergen",
+		description = "Verberg tijdelijk gesplitste privéchat tijdens het maken van bewijs",
 		section = EVIDENCE, position = 1)
 	default boolean hidePrivateMessages() { return true; }
 
-	@ConfigItem(keyName = "retentionDays", name = "Evidence retention",
-		description = "Days to keep successfully uploaded evidence locally",
+	@ConfigItem(keyName = "retentionDays", name = "Bewaartermijn van bewijs",
+		description = "Aantal dagen dat succesvol geüpload bewijs lokaal wordt bewaard",
 		section = EVIDENCE, position = 2)
 	default int retentionDays() { return 30; }
 
-	@ConfigItem(keyName = "autoSubmitEnabled", name = "Auto-submit everything",
-		description = "Automatically submit all evidence types after upload",
+	@ConfigItem(keyName = "autoSubmitEnabled", name = "Alles automatisch inzenden",
+		description = "Dien alle soorten bewijs automatisch in na het uploaden",
 		section = EVIDENCE, position = 3)
 	default boolean autoSubmitEnabled() { return true; }
 
-	@ConfigItem(keyName = "eventAlerts", name = "Event Alerts",
-		description = "Receive new event announcements in game chat",
+	@ConfigItem(keyName = "eventAlerts", name = "Eventmeldingen",
+		description = "Ontvang aankondigingen van nieuwe events in de gamechat",
 		section = EVENT_ALERTS, position = 0)
 	default boolean eventAlerts() { return true; }
 
-	@ConfigItem(keyName = "eventAlertOverlay", name = "Event Alert Overlay",
-		description = "Show new event announcements in an in-game overlay",
+	@ConfigItem(keyName = "eventAlertOverlay", name = "Eventmeldingen als overlay",
+		description = "Toon aankondigingen van nieuwe events als overlay in de game",
 		section = EVENT_ALERTS, position = 1)
 	default boolean eventAlertOverlay() { return true; }
 
-	@ConfigItem(keyName = "eventAlertDuration", name = "Overlay Duration (s)",
-		description = "Duration in seconds to display the overlay when a new alert arrives",
+	@ConfigItem(keyName = "eventAlertDuration", name = "Duur van overlay (s)",
+		description = "Aantal seconden dat een nieuwe melding in beeld blijft",
 		section = EVENT_ALERTS, position = 2)
 	default int eventAlertDuration() { return 15; }
 
-	@ConfigItem(keyName = "eventAlertFlash", name = "Flash Overlay",
-		description = "Flash the overlay when an event alert is active",
+	@ConfigItem(keyName = "eventAlertFlash", name = "Overlay laten knipperen",
+		description = "Laat de overlay knipperen wanneer er een eventmelding actief is",
 		section = EVENT_ALERTS, position = 3)
 	default boolean eventAlertFlash() { return false; }
 
-	@ConfigItem(keyName = "eventAlertFlashColor", name = "Flash Color",
-		description = "Choose the background highlight color when flashing",
+	@ConfigItem(keyName = "eventAlertFlashColor", name = "Knipperkleur",
+		description = "Kies de achtergrondkleur voor het knipperen",
 		section = EVENT_ALERTS, position = 4)
 	default Color eventAlertFlashColor() { return new Color(175, 215, 255, 240); }
 
-	@ConfigItem(keyName = "eventAlertColor", name = "Event Alert Color",
-		description = "Choose the color used for event announcements",
+	@ConfigItem(keyName = "eventAlertColor", name = "Kleur van eventmeldingen",
+		description = "Kies de tekstkleur voor eventmeldingen",
 		section = EVENT_ALERTS, position = 5)
 	default Color eventAlertColor() { return new Color(0, 130, 235); }
 
-	@ConfigItem(keyName = "bingoOverlayEnabled", name = "Bingo Overlay",
-		description = "Show the active bingo event overlay",
+	@ConfigItem(keyName = "bingoOverlayEnabled", name = "Bingo-overlay",
+		description = "Toon de overlay van het actieve bingo-event",
 		section = BINGO_OVERLAY, position = 0)
 	default boolean bingoOverlayEnabled() { return true; }
 
-	@ConfigItem(keyName = "bingoOverlayScreenshotOnly", name = "Screenshot only",
-		description = "Show the enabled Bingo overlay only in captured evidence screenshots",
+	@ConfigItem(keyName = "bingoOverlayScreenshotOnly", name = "Alleen op screenshots",
+		description = "Toon de bingo-overlay alleen op gemaakte bewijsscreenshots",
 		section = BINGO_OVERLAY, position = 2)
 	default boolean bingoOverlayScreenshotOnly() { return false; }
 
-	@ConfigItem(keyName = "bingoOverlayTextColor", name = "Text Color",
-		description = "Choose the text color used by the active event overlay",
+	@ConfigItem(keyName = "bingoOverlayTextColor", name = "Tekstkleur",
+		description = "Kies de tekstkleur van de actieve event-overlay",
 		section = BINGO_OVERLAY, position = 1)
 	default Color bingoOverlayTextColor() { return Color.WHITE; }
 

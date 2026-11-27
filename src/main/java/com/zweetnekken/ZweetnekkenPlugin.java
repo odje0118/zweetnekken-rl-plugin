@@ -7,6 +7,7 @@ package com.zweetnekken;
 import com.google.inject.Provides;
 import com.zweetnekken.evidence.EventPipeline;
 import com.zweetnekken.evidence.EvidenceStore;
+import com.zweetnekken.collection.CollectionLogSyncService;
 import com.zweetnekken.events.CollectionLogEventListener;
 import com.zweetnekken.events.CombatTierEventListener;
 import com.zweetnekken.events.LootEventListener;
@@ -22,6 +23,9 @@ import com.zweetnekken.service.PartyTracker;
 import com.zweetnekken.service.TileRaceService;
 import com.zweetnekken.ui.ZweetnekkenPanel;
 import com.zweetnekken.ui.BingoEventOverlay;
+import com.zweetnekken.ui.CollectionLogRefreshButton;
+import com.zweetnekken.ui.CollectionLogAutoSync;
+import com.zweetnekken.ui.CollectionLogSyncOverlay;
 import com.zweetnekken.ui.EventAlertOverlay;
 import java.io.IOException;
 import java.awt.Color;
@@ -53,7 +57,7 @@ import net.runelite.client.util.Filepath;
 @Slf4j
 @PluginDescriptor(
 	name = "Zweetnekken",
-	description = "Zweetnekken clan dashboard, evidence capture, loot submissions, and PB sync",
+	description = "Clanoverzicht van Zweetnekken, bewijs vastleggen, loot inzenden en PB's synchroniseren",
 	tags = {"clan", "loot", "pvm", "personal best", "collection log", "pet"},
 	internalName = "zweetnekken",
 	legacyDataDirectory = "zweetnekken"
@@ -84,6 +88,10 @@ public class ZweetnekkenPlugin extends Plugin
 	@Inject private TileRaceService tileRace;
 	@Inject private EventAlertOverlay eventAlertOverlay;
 	@Inject private BingoEventOverlay bingoEventOverlay;
+	@Inject private CollectionLogRefreshButton collectionLogRefreshButton;
+	@Inject private CollectionLogAutoSync collectionLogAutoSync;
+	@Inject private CollectionLogSyncService collectionLogSync;
+	@Inject private CollectionLogSyncOverlay collectionLogSyncOverlay;
 	@Inject private PartyTracker parties;
 	@Inject private LootEventListener loot;
 	@Inject private WeaponCreationEventListener weaponCreation;
@@ -112,7 +120,10 @@ public class ZweetnekkenPlugin extends Plugin
 		panel.setEventPanelVisible(client.getGameState() == GameState.LOGGED_IN);
 		overlayManager.add(eventAlertOverlay);
 		overlayManager.add(bingoEventOverlay);
-		registered = Arrays.asList(parties, loot, weaponCreation, collectionLog, pets, combatTiers, pbs);
+		overlayManager.add(collectionLogSyncOverlay);
+		registered = Arrays.asList(parties, loot, weaponCreation, collectionLog, collectionLogSync,
+			collectionLogAutoSync, pets, combatTiers, pbs);
+		collectionLogRefreshButton.startUp();
 		data.addListener(connectionListener);
 		data.validate();
 		executor.execute(() -> evidence.pruneUploaded(config.retentionDays()));
@@ -145,11 +156,13 @@ public class ZweetnekkenPlugin extends Plugin
 		if (eligibilityRefreshTask != null) { eligibilityRefreshTask.cancel(false); eligibilityRefreshTask = null; }
 		if (tileRaceRefreshTask != null) { tileRaceRefreshTask.cancel(false); tileRaceRefreshTask = null; }
 		deactivateFeatures();
+		collectionLogRefreshButton.shutDown();
 		registered = null;
 		data.removeListener(connectionListener);
 		if (navigation != null) { toolbar.removeNavigation(navigation); navigation = null; }
 		overlayManager.remove(eventAlertOverlay);
 		overlayManager.remove(bingoEventOverlay);
+		overlayManager.remove(collectionLogSyncOverlay);
 		eventAlerts.resetStateForWorldHopOrLogin();
 		bingo.clear();
 		activePlayerName = null;
@@ -198,8 +211,8 @@ public class ZweetnekkenPlugin extends Plugin
 		switch (event.getKey())
 		{
 			case "authenticationCode": firstConnectionSyncedAccount = null; data.validate(); updateFeatureActivation(); break;
-			case "eventAlerts": eventAlerts.resetStateForConfigChange(); break;
 			case "animatedBanner": panel.refreshBanner(); break;
+			case "eventAlerts": eventAlerts.resetStateForConfigChange(); break;
 			case "refreshProfile": if (Boolean.parseBoolean(event.getNewValue())) { refreshCurrentPlayer(); if (client.getGameState() == GameState.LOGGED_IN) tileRace.refresh(); resetAction(event.getKey()); } break;
 			case "retryOutbox": if (Boolean.parseBoolean(event.getNewValue())) { if (featuresActive) pipeline.retryAll(); resetAction(event.getKey()); } break;
 			case "clearImageCache": if (Boolean.parseBoolean(event.getNewValue())) { panel.invalidateBannerLoads(); resetAction(event.getKey()); imageCache.clear(() -> clientThread.invokeLater(() -> { refreshCurrentPlayer(); panel.refreshBanner(); })); } break;
@@ -246,6 +259,7 @@ public class ZweetnekkenPlugin extends Plugin
 			for (Object listener : registered) eventBus.register(listener);
 			bingo.refresh();
 			pbs.onLogin();
+			collectionLogSync.retryPending();
 			pipeline.retryAll();
 			pipeline.refreshStatuses(name);
 		}

@@ -38,6 +38,7 @@ public class EventPipeline
 	private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
 	private final Map<String, CaptureGroup> captureGroups = new ConcurrentHashMap<>();
 	private final Set<String> raidGroupsBeingSubmitted = ConcurrentHashMap.newKeySet();
+	private final Map<String, ZweetnekkenModels.EventEnvelope> diaryCaptures = new ConcurrentHashMap<>();
 	private volatile CaptureGroup recentTriggerGroup;
 	@Inject private Client client;
 	@Inject private ZweetnekkenConfig config;
@@ -77,11 +78,6 @@ public class EventPipeline
 		java.util.Map<String, Object> details, boolean includeParty, String rulesVersionOverride,
 		boolean screenshotRequired, boolean finalizeSubmission, ZweetnekkenModels.Party partyOverride)
 	{
-		if ("diary".equals(type))
-		{
-			log.debug("PvM Diary capture is disabled for the current plugin build");
-			return;
-		}
 		if ("loot_test".equalsIgnoreCase(type))
 		{
 			log.warn("Ignoring legacy test-only loot event; test captures are disabled in this plugin release");
@@ -97,14 +93,18 @@ public class EventPipeline
 		}
 		Player local = client.getLocalPlayer();
 		long now = System.currentTimeMillis();
-		if (local == null || local.getName() == null || !deduplicator.accept(type + '|' + dedupeKey, now)) return;
+		if (local == null || local.getName() == null) return;
+		String accountHash = String.valueOf(client.getAccountHash());
+		String eventKey = "diary".equals(type) ? accountHash + '|' + dedupeKey : dedupeKey;
+		if (!deduplicator.accept(type + '|' + eventKey, now)) return;
+		ZweetnekkenModels.EventEnvelope envelope = new ZweetnekkenModels.EventEnvelope();
+		envelope.eventId = UUID.randomUUID().toString(); envelope.eventType = type; envelope.capturedAt = Instant.now().toString();
+		envelope.player = new ZweetnekkenModels.PlayerIdentity(); envelope.player.name = local.getName(); envelope.player.accountHash = accountHash;
+		envelope.source = source; if (items != null) envelope.items.addAll(items); if (details != null) envelope.details.putAll(details);
+		if (!canSendDiary(envelope) || ("diary".equals(type) && !reserveDiaryTime(envelope))) return;
 		CaptureGroup group = groupFor(type, source, details, now);
 		boolean coordinatedRaidEvidence = group.coordinatesRaidEvidence(type);
 		group.captureStarted(now);
-		ZweetnekkenModels.EventEnvelope envelope = new ZweetnekkenModels.EventEnvelope();
-		envelope.eventId = UUID.randomUUID().toString(); envelope.eventType = type; envelope.capturedAt = Instant.now().toString();
-		envelope.player = new ZweetnekkenModels.PlayerIdentity(); envelope.player.name = local.getName(); envelope.player.accountHash = String.valueOf(client.getAccountHash());
-		envelope.source = source; if (items != null) envelope.items.addAll(items); if (details != null) envelope.details.putAll(details);
 		String partySource = source == null ? null : source.name;
 		if (partySource == null && details != null && details.get("record") instanceof ZweetnekkenModels.PbRecord)
 			partySource = ((ZweetnekkenModels.PbRecord) details.get("record")).activity;
@@ -144,6 +144,7 @@ public class EventPipeline
 					group.captureFinished();
 					log.error("Could not save evidence metadata for event {} ({})", envelope.eventId, envelope.eventType, e);
 				}
+				finally { diaryCaptures.remove(envelope.eventId); }
 			});
 			return;
 		}
@@ -151,6 +152,7 @@ public class EventPipeline
 		{
 			if (image == null)
 			{
+				diaryCaptures.remove(envelope.eventId);
 				group.captureFinished();
 				log.error("Evidence capture returned no screenshot for event {} ({})", envelope.eventId, envelope.eventType);
 				return;
@@ -169,17 +171,39 @@ public class EventPipeline
 				group.captureFinished();
 				log.error("Could not save evidence for event {} ({})", envelope.eventId, envelope.eventType, e);
 			}
+			finally { diaryCaptures.remove(envelope.eventId); }
 		});
+	}
+
+	private synchronized boolean reserveDiaryTime(ZweetnekkenModels.EventEnvelope event)
+	{
+		Map<?, ?> diary = PvmDiaryTime.diaryDetails(event);
+		Object activityId = diary.get("activityId");
+		Object value = diary.get("value");
+		// Completion and wave-based activities do not use elapsed time.
+		if (!(activityId instanceof String) || !(value instanceof Number) || "doom".equals(activityId)
+			|| "wave".equals(diary.get("resultKind")))
+			return true;
+
+		long millis = ((Number) value).longValue();
+		if (millis <= 0 || !PvmDiaryTime.improvesPublishedDiaryTime((String) activityId, millis,
+			data.pvmDiaryStatus(event.player.name))) return false;
+		for (ZweetnekkenModels.EventEnvelope pending : diaryCaptures.values())
+			if (PvmDiaryTime.hasFasterOrEqualDiaryTime(event, pending, activityId, millis)) return false;
+		for (EvidenceStore.Record record : store.records())
+			if (record.status != ZweetnekkenModels.EventStatus.REJECTED
+				&& PvmDiaryTime.hasFasterOrEqualDiaryTime(event, record.metadata, activityId, millis)) return false;
+
+		diaryCaptures.put(event.eventId, event);
+		return true;
 	}
 
 	public void retryAll()
 	{
-		// Don't resend legacy PvM Diary outbox records while the feature is parked.
 		executor.execute(() ->
 		{
 			for (EvidenceStore.Record record : store.records())
-				if (!isPvMDiaryRecord(record)
-					&& (record.status == ZweetnekkenModels.EventStatus.PENDING || record.status == ZweetnekkenModels.EventStatus.FAILED))
+				if (record.status == ZweetnekkenModels.EventStatus.PENDING || record.status == ZweetnekkenModels.EventStatus.FAILED)
 					upload(record, true);
 		});
 	}
@@ -211,12 +235,12 @@ public class EventPipeline
 
 	public void upload(EvidenceStore.Record record, boolean manual)
 	{
+		if (!canSendDiary(record.metadata)) return;
 		if (isLegacyTestLootRecord(record))
 		{
 			log.warn("Skipping legacy test-only loot event {} from the local outbox", eventId(record));
 			return;
 		}
-		if (isPvMDiaryRecord(record)) return;
 		String code = config.authenticationCode() == null ? "" : config.authenticationCode().trim();
 		if (code.isEmpty())
 		{
@@ -229,7 +253,7 @@ public class EventPipeline
 		if (record.screenshotPath != null && !record.screenshotPath.isBlank() && screenshot == null)
 		{
 			record.status = ZweetnekkenModels.EventStatus.FAILED;
-			record.error = "Local evidence screenshot is unavailable";
+			record.error = "Lokale bewijsscreenshot is niet beschikbaar";
 			record.updatedAt = Instant.now().toString();
 			persist(record);
 			return;
@@ -245,7 +269,7 @@ public class EventPipeline
 			else
 			{
 				record.status = ZweetnekkenModels.EventStatus.FAILED;
-				record.error = result.error == null ? "Empty server response" : result.error;
+				record.error = result.error == null ? "Leeg antwoord van de server" : result.error;
 				record.retryCount++;
 				log.error("Evidence upload failed for event {} ({}): HTTP {}, error={}, retry={}, manual={}",
 					eventId(record), eventType(record), result.statusCode, record.error, record.retryCount, manual);
@@ -263,9 +287,12 @@ public class EventPipeline
 		}));
 	}
 
-	private static boolean isPvMDiaryRecord(EvidenceStore.Record record)
+	public boolean canSendDiary(ZweetnekkenModels.EventEnvelope event)
 	{
-		return record != null && record.metadata != null && "diary".equals(record.metadata.eventType);
+		if (event == null || !"diary".equals(event.eventType)) return true;
+		Object id = PvmDiaryTime.diaryDetails(event).get("activityId");
+		return event.player != null && id instanceof String
+			&& data.isPvmDiaryActivityActive(event.player.name, (String) id);
 	}
 
 	private static boolean isLegacyTestLootRecord(EvidenceStore.Record record)
@@ -396,8 +423,6 @@ public class EventPipeline
 		// All loot submissions require explicit confirmation of the participant roster.
 		if ("loot".equals(type) || "loot_test".equals(type)) return false;
 		if (!config.autoSubmitEnabled() || record.metadata.context == null) return false;
-		if ("diary".equals(type) && (record.metadata.party == null
-			|| record.metadata.party.detectedPartySize != 1 || record.metadata.party.submittedPartySize != 1)) return false;
 		if ("personal_best".equals(type) || "diary".equals(type) || "collection_log".equals(type))
 			return record.metadata.details != null
 				&& Boolean.TRUE.equals(record.metadata.details.get("autoSubmit"));
@@ -449,20 +474,23 @@ public class EventPipeline
 	public void updateAndSubmit(EvidenceStore.Record record, int partySize, int clanMembers, int nonClanMembers,
 		List<ZweetnekkenModels.PartyMember> partyMembers, String notes)
 	{
-		if (isPvMDiaryRecord(record)) return;
 		updateAndSubmit(record, partySize, clanMembers, nonClanMembers, partyMembers, notes, () -> { });
 	}
 
 	private void updateAndSubmit(EvidenceStore.Record record, int partySize, int clanMembers, int nonClanMembers,
 		List<ZweetnekkenModels.PartyMember> partyMembers, String notes, Runnable completion)
 	{
+		if (record == null || !canSendDiary(record.metadata))
+		{
+			completion.run();
+			return;
+		}
 		if (isLegacyTestLootRecord(record))
 		{
 			log.warn("Skipping submission of legacy test-only loot event {}", eventId(record));
 			completion.run();
 			return;
 		}
-		if (isPvMDiaryRecord(record)) return;
 		// Keep the permission check in the submission pipeline as well as the UI and
 		// backend, so a stale panel or a future caller cannot submit ordinary loot as a Trialist.
 		if (record != null && record.metadata != null
@@ -476,7 +504,7 @@ public class EventPipeline
 		}
 		if (record.submissionId == null)
 		{
-			record.error = "Submission ID is unavailable; retry the upload";
+			record.error = "Inzendings-ID ontbreekt; probeer de upload opnieuw";
 			log.error("Could not submit event {}: submission ID is unavailable", eventId(record));
 			persist(record);
 			completion.run();
@@ -504,6 +532,13 @@ public class EventPipeline
 				record.error = patched.error;
 				log.error("Submission update failed for event {} (submission {}): HTTP {}, error={}",
 					eventId(record), record.submissionId, patched.statusCode, patched.error);
+				persist(record);
+				completion.run();
+				return;
+			}
+			if (!canSendDiary(record.metadata))
+			{
+				record.status = ZweetnekkenModels.EventStatus.DRAFT;
 				persist(record);
 				completion.run();
 				return;

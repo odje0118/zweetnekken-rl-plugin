@@ -8,6 +8,7 @@ import com.zweetnekken.api.ZweetnekkenApiClient;
 import com.zweetnekken.evidence.EventPipeline;
 import com.zweetnekken.model.ZweetnekkenModels;
 import com.zweetnekken.service.PartyTracker;
+import com.zweetnekken.service.ZweetnekkenDataService;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -45,16 +46,6 @@ public class PersonalBestService
 	private static final String GROUP = "personalbest";
 	private static final Pattern RECORD = Pattern.compile("^Fastest (?<descriptor>.+): (?<value>-|[0-9:]+(?:\\.[0-9]+)?)$");
 	private static final Pattern TEAM = Pattern.compile("(\\d+)\\+? player", Pattern.CASE_INSENSITIVE);
-	private static final Pattern SPECIAL_ACTIVITY_KILL_COUNT = Pattern.compile(
-		"^Your (?<boss>TzTok-Jad|TzKal-Zuk|Sol Heredit|(?:The )?Corrupted Gauntlet|Gauntlet) "
-			+ "(?:kill |completion )?count is: [0-9,]+\\.?$", Pattern.CASE_INSENSITIVE);
-	private static final Pattern SPECIAL_ACTIVITY_COMPLETION = Pattern.compile(
-		"^(?:Congratulations!?\\s*)?(?:You have )?(?:completed|defeated|killed) (?:the )?"
-			+ "(?<boss>Fortis Colosseum|Colosseum|Inferno|TzKal-Zuk|TzHaar Fight Cave|Fight Caves|"
-			+ "The Corrupted Gauntlet|Corrupted Gauntlet|Gauntlet|Sol Heredit|TzTok-Jad)\\.?$", Pattern.CASE_INSENSITIVE);
-	private static final Pattern NEW_PB_DURATION = Pattern.compile(
-		"^Duration:?\\s*(?<time>[0-9:]+(?:\\.[0-9]+)?)\\.?\\s*\\(new personal best\\)\\.?$",
-		Pattern.CASE_INSENSITIVE);
 	private static final Pattern COX_COMPLETION = Pattern.compile(
 		"Team size:\\s*(?<team>[1-9][0-9]*|Solo)\\s*(?:players?)?\\s+Duration:\\s*(?<time>[0-9:]+(?:\\.[0-9]+)?)"
 			+ "(?:\\s+Personal best:\\s*[0-9:]+(?:\\.[0-9]+)?|\\s*\\(new personal best\\))"
@@ -75,12 +66,9 @@ public class PersonalBestService
 		Pattern.CASE_INSENSITIVE);
 	private static final Pattern TOB_HARD_MODE_COMPLETION = Pattern.compile(
 		"^Wave 'The Final Challenge' \\(Hard Mode\\) complete!?$", Pattern.CASE_INSENSITIVE);
-	private static final Pattern OBSERVED_ACTIVITY_DURATION = Pattern.compile(
-		"(?:Fight |Challenge |Corrupted challenge |Colosseum )?duration:?\\s*(?<time>[0-9:]+(?:\\.[0-9]+)?)"
-			+ "(?:\\.\\s*Personal best:\\s*[0-9:]+(?:\\.[0-9]+)?|\\s*\\(new personal best\\)|[.]?$)",
-		Pattern.CASE_INSENSITIVE);
-	private static final Pattern DOOM_COMPLETION_TITLE = Pattern.compile("^Level\\s+(?<level>[1-9][0-9]*)\\s+Complete!$",
-		Pattern.CASE_INSENSITIVE);
+	private static final long SOLO_COMPLETION_TIMEOUT_MILLIS = 15_000L;
+	private static final long RAID_COMPLETION_TIMEOUT_MILLIS = 15_000L;
+	private static final long COX_COMPLETION_CONFIRMATION_TIMEOUT_MILLIS = 5_000L;
 	private static final Set<String> DUPLICATE_KEYS = new HashSet<>(java.util.Arrays.asList(
 		"tztok-jad", "tzkal-zuk", "sol heredit", "hueycoatl", "gauntlet", "corrupted gauntlet", "nightmare",
 		"tzhaar fight cave", "inferno", "fortis colosseum", "the gauntlet", "the corrupted gauntlet",
@@ -103,17 +91,37 @@ public class PersonalBestService
 	@Inject private ZweetnekkenApiClient api;
 	@Inject private EventPipeline pipeline;
 	@Inject private PartyTracker parties;
+	@Inject private ZweetnekkenDataService data;
 	private final Map<String, Double> known = new HashMap<>();
-	private volatile String status = "Never synced";
+	private volatile String status = "Nog niet gesynchroniseerd";
 	private String lastFingerprint;
 	private boolean journalLoaded;
 	private Scoreboard pendingScoreboard;
+	private String pendingDiaryActivity;
+	private long pendingDiaryActivityUntil;
+	private String pendingRaidActivity;
+	private Integer pendingRaidTeamSize;
+	private Integer pendingRaidInvocation;
+	private long pendingRaidAt;
+	private Long pendingRaidTotalDurationMillis;
+	private Long pendingTobDurationMillis;
+	private ZweetnekkenModels.PbRecord pendingCoxCompletion;
+	private long pendingCoxCompletionAt;
+	private ZweetnekkenModels.PvmDiaryConfig compiledDiaryConfig;
+	private final Map<ZweetnekkenModels.PvmDiaryActivity, List<DiaryChatTemplate>> configuredDiaryMessages = new HashMap<>();
 
 	public String status() { return status; }
 	public void onLogin()
 	{
 		pendingScoreboard = null;
 		journalLoaded = false;
+		pendingDiaryActivity = null;
+		pendingRaidActivity = null;
+		pendingRaidTeamSize = null;
+		pendingRaidInvocation = null;
+		pendingRaidTotalDurationMillis = null;
+		pendingTobDurationMillis = null;
+		pendingCoxCompletion = null;
 		hydrateKnown();
 	}
 
@@ -134,9 +142,303 @@ public class PersonalBestService
 	{
 		if (event.getType() != ChatMessageType.GAMEMESSAGE && event.getType() != ChatMessageType.SPAM) return;
 		String rawMessage = event.getMessage().replaceAll("(?i)<br\\s*/?>", " ");
-		String message = Text.removeTags(rawMessage).replace('\u00A0', ' ').replaceAll("\\s+", " ").trim();
-		// Keep the Fractured Archive PB parser; PvM Diary event submission is parked.
-		captureArchiveCompletion(message);
+		String message = DiaryChatMessages.normalize(Text.removeTags(rawMessage));
+		if (captureConfiguredDiaryMessage(message)) return;
+		if (captureArchiveCompletion(message)) return;
+		Long doomLevel = DiaryChatMessages.doomLevel(message);
+		if (doomLevel != null)
+		{
+			captureObservedDiaryRun("Doom of Mokhaiotl", null, 1, null, doomLevel, parties.snapshot("Doom of Mokhaiotl", true));
+			return;
+		}
+		captureDiaryCompletion(message);
+	}
+
+	private boolean captureConfiguredDiaryMessage(String message)
+	{
+		refreshDiaryChatTemplates();
+		ZweetnekkenModels.PvmDiaryActivity matched = null;
+		String observed = null;
+		for (Map.Entry<ZweetnekkenModels.PvmDiaryActivity, List<DiaryChatTemplate>> entry : configuredDiaryMessages.entrySet())
+		{
+			for (DiaryChatTemplate template : entry.getValue())
+			{
+				String result = template.result(message);
+				if (result == null) continue;
+				if (matched != null && (matched != entry.getKey() || !result.equals(observed))) return true;
+				matched = entry.getKey();
+				observed = result;
+			}
+		}
+		if (matched == null) return false;
+
+		boolean wave = "wave".equals(matched.kind);
+		Double duration = wave ? null : parseTime(observed);
+		if (wave || duration != null)
+		{
+			long result = wave ? Long.parseLong(observed) : Math.round(duration * 1000);
+			String source = matched.sourceActivity == null ? matched.name : matched.sourceActivity;
+			captureDiaryRun(matched, result, source, parties.snapshot(source, true), null);
+		}
+		return true;
+	}
+
+	private void refreshDiaryChatTemplates()
+	{
+		ZweetnekkenModels.PvmDiaryConfig catalogue = client.getLocalPlayer() == null ? null
+			: data.pvmDiaryConfig(client.getLocalPlayer().getName());
+		if (compiledDiaryConfig == catalogue) return;
+		compiledDiaryConfig = catalogue;
+		configuredDiaryMessages.clear();
+		if (catalogue == null) return;
+		for (ZweetnekkenModels.PvmDiaryActivity activity : catalogue.activities)
+		{
+			if (activity.teamSize != 1 || activity.invocation != null
+				|| !("time".equals(activity.kind) || "wave".equals(activity.kind))) continue;
+			List<String> patterns = activity.chatTemplates != null ? activity.chatTemplates
+				: java.util.Collections.singletonList(activity.chatTemplate);
+			List<DiaryChatTemplate> templates = new ArrayList<>();
+			for (String pattern : patterns)
+			{
+				DiaryChatTemplate template = DiaryChatTemplate.compile(pattern, "wave".equals(activity.kind));
+				if (template != null) templates.add(template);
+			}
+			if (!templates.isEmpty()) configuredDiaryMessages.put(activity, templates);
+		}
+	}
+
+	private void captureDiaryCompletion(String message)
+	{
+		Matcher cox = COX_COMPLETION.matcher(message);
+		if (cox.find())
+		{
+			Double seconds = parseTime(cox.group("time"));
+			int teamSize = "solo".equalsIgnoreCase(cox.group("team")) ? 1 : parseTeamSize(cox.group("team"));
+			if (seconds != null && teamSize > 0)
+			{
+				capturePendingCoxCompletion();
+				pendingCoxCompletion = new ZweetnekkenModels.PbRecord();
+				pendingCoxCompletion.activity = "Chambers of Xeric";
+				pendingCoxCompletion.teamSize = teamSize;
+				pendingCoxCompletion.durationMillis = Math.round(seconds * 1000);
+				pendingCoxCompletionAt = System.currentTimeMillis();
+			}
+			return;
+		}
+		if (pendingCoxCompletion != null)
+		{
+			Matcher coxCount = COX_COMPLETION_COUNT.matcher(message);
+			if (coxCount.matches())
+			{
+				if (coxCount.group("challenge") != null) pendingCoxCompletion.variant = "challenge_mode";
+				capturePendingCoxCompletion();
+				return;
+			}
+			if (System.currentTimeMillis() - pendingCoxCompletionAt > COX_COMPLETION_CONFIRMATION_TIMEOUT_MILLIS)
+				capturePendingCoxCompletion();
+		}
+
+		if (!capturePendingRaid(message)) captureBossDiaryCompletion(message);
+	}
+
+	private void capturePendingCoxCompletion()
+	{
+		ZweetnekkenModels.PbRecord record = pendingCoxCompletion;
+		pendingCoxCompletion = null;
+		if (record == null || record.durationMillis == null || record.teamSize == null) return;
+		captureObservedDiaryRun(record.activity, record.variant, record.teamSize, null, record.durationMillis,
+			PartyTracker.withCompletionSize(parties.snapshot(record.activity), record.teamSize));
+	}
+
+	private boolean capturePendingRaid(String message)
+	{
+		String activity = raidActivityFromCompletionMessage(message);
+		if (activity != null)
+		{
+			pendingRaidActivity = activity;
+			ZweetnekkenModels.Party party = parties.snapshot(activity);
+			pendingRaidTeamSize = party == null ? null : party.detectedPartySize;
+			pendingRaidInvocation = activity.startsWith("Tombs of Amascut")
+				? client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL) : null;
+			pendingRaidAt = System.currentTimeMillis();
+		}
+
+		Long totalDuration = totalCompletionTimeMillis(message);
+		if (totalDuration != null)
+		{
+			pendingRaidTotalDurationMillis = totalDuration;
+			pendingRaidAt = System.currentTimeMillis();
+		}
+		Long tobDuration = tobCompletionTimeMillis(message);
+		if (tobDuration != null)
+		{
+			pendingTobDurationMillis = tobDuration;
+			pendingRaidAt = System.currentTimeMillis();
+		}
+		return tryCapturePendingRaid();
+	}
+
+	private static String raidActivityFromCompletionMessage(String message)
+	{
+		if (message == null) return null;
+		if (TOB_HARD_MODE_COMPLETION.matcher(message.trim()).matches()) return "Theatre of Blood Hard Mode";
+		String lower = message.toLowerCase(Locale.ROOT);
+		boolean completionSignal = lower.contains("count is:") || lower.contains("raid is complete")
+			|| lower.contains("raid complete") || lower.contains("completed the raid")
+			|| lower.contains("raid completion") || lower.contains("total completion time");
+		if (!completionSignal) return null;
+		if (lower.contains("theatre of blood"))
+			return lower.contains("hard mode") ? "Theatre of Blood Hard Mode" : "Theatre of Blood";
+		if (lower.contains("tombs of amascut"))
+			return lower.contains("expert mode") ? "Tombs of Amascut Expert Mode" : "Tombs of Amascut";
+		return null;
+	}
+
+	private Long totalCompletionTimeMillis(String message)
+	{
+		Matcher matcher = TOTAL_RAID_COMPLETION_DURATION.matcher(message == null ? "" : message);
+		if (!matcher.find()) return null;
+		Double seconds = parseTime(matcher.group("time"));
+		return seconds == null ? null : Math.round(seconds * 1000);
+	}
+
+	private Long tobCompletionTimeMillis(String message)
+	{
+		Matcher matcher = TOB_COMPLETION_DURATION.matcher(message == null ? "" : message);
+		if (!matcher.find()) return null;
+		Double seconds = parseTime(matcher.group("time"));
+		return seconds == null ? null : Math.round(seconds * 1000);
+	}
+
+	private boolean tryCapturePendingRaid()
+	{
+		long age = System.currentTimeMillis() - pendingRaidAt;
+		if (pendingRaidActivity == null || pendingRaidTeamSize == null
+			|| age < 0 || age > RAID_COMPLETION_TIMEOUT_MILLIS) return false;
+		Long duration = pendingRaidActivity.startsWith("Theatre of Blood")
+			? pendingTobDurationMillis : pendingRaidTotalDurationMillis;
+		if (duration == null) return false;
+		String sourceName = pendingRaidActivity;
+		int team = pendingRaidTeamSize;
+		Integer invocation = pendingRaidInvocation;
+		String activity = sourceName;
+		String variant = null;
+		if ("Theatre of Blood Hard Mode".equals(sourceName))
+		{
+			activity = "Theatre of Blood";
+			variant = "hard";
+		}
+		else if (sourceName.startsWith("Tombs of Amascut")) activity = "Tombs of Amascut";
+		pendingRaidActivity = null;
+		pendingRaidTotalDurationMillis = null;
+		pendingTobDurationMillis = null;
+		pendingRaidTeamSize = null;
+		pendingRaidInvocation = null;
+		ZweetnekkenModels.Party party = parties.snapshot(sourceName, team == 1);
+		if (party != null && party.detectedPartySize == team && (team == 1 || "high".equals(party.confidence)))
+			captureObservedDiaryRun(activity, variant, team, invocation, duration, party);
+		return true;
+	}
+
+	private void captureBossDiaryCompletion(String message)
+	{
+		long now = System.currentTimeMillis();
+		String activity = DiaryChatMessages.soloCompletionActivity(message);
+		if (activity != null)
+		{
+			pendingDiaryActivity = activity;
+			pendingDiaryActivityUntil = now + SOLO_COMPLETION_TIMEOUT_MILLIS;
+			return;
+		}
+
+		String duration = DiaryChatMessages.soloDuration(message);
+		Double seconds = duration == null ? null : parseTime(duration);
+		String personalBest = DiaryChatMessages.personalBestDuration(message);
+		Double best = personalBest == null ? null : parseTime(personalBest);
+		if (seconds == null && best == null) return;
+		String pending = pendingDiaryActivity;
+		pendingDiaryActivity = null;
+		if (pending == null || now > pendingDiaryActivityUntil) return;
+
+		if (seconds != null)
+		{
+			ZweetnekkenModels.PbRecord record = pbRecordFromKey(pending, seconds);
+			captureObservedDiaryRun(record.activity, record.variant, 1, null, record.durationMillis,
+				parties.snapshot(pending, true));
+		}
+		if (best != null)
+		{
+			ZweetnekkenModels.PbRecord record = pbRecordFromKey(pending, best);
+			String key = recordKey(record);
+			Double previous = known.get(key);
+			if (previous == null || best < previous)
+			{
+				known.put(key, best);
+				sync(java.util.Collections.singletonList(record), false, true, previous);
+			}
+		}
+	}
+
+	private static int parseTeamSize(String value)
+	{
+		Matcher matcher = Pattern.compile("[0-9]+").matcher(value == null ? "" : value);
+		return matcher.find() ? Integer.parseInt(matcher.group()) : 0;
+	}
+
+	private void captureObservedDiaryRun(String source, String variant, int teamSize, Integer invocation, long value,
+		ZweetnekkenModels.Party party)
+	{
+		ZweetnekkenModels.PvmDiaryActivity activity = observedDiaryActivity(source, variant, teamSize, invocation);
+		if (activity != null) captureDiaryRun(activity, value, source, party, null);
+	}
+
+	private ZweetnekkenModels.PvmDiaryActivity observedDiaryActivity(String source, String variant, int teamSize,
+		Integer invocation)
+	{
+		refreshDiaryChatTemplates();
+		ZweetnekkenModels.PvmDiaryConfig catalogue = compiledDiaryConfig;
+		if (catalogue == null || source == null) return null;
+		ZweetnekkenModels.PvmDiaryActivity match = null;
+		for (ZweetnekkenModels.PvmDiaryActivity activity : catalogue.activities)
+		{
+			if (!source.equalsIgnoreCase(activity.sourceActivity) || activity.teamSize != teamSize
+				|| !java.util.Objects.equals(activity.invocation, invocation)
+				|| !(variant == null ? activity.sourceVariant == null : variant.equalsIgnoreCase(activity.sourceVariant))
+				|| configuredDiaryMessages.containsKey(activity)) continue;
+			if (match != null) return null;
+			match = activity;
+		}
+		return match;
+	}
+
+	private void captureDiaryRun(ZweetnekkenModels.PvmDiaryActivity activity, long value, String sourceName,
+		ZweetnekkenModels.Party party, ZweetnekkenModels.PbRecord record)
+	{
+		if (value <= 0) return;
+		boolean completion = "completion".equals(activity.kind);
+		boolean wave = "wave".equals(activity.kind);
+		if ("time".equals(activity.kind) && activity.minimumTimeMillis != null && value < activity.minimumTimeMillis)
+			return;
+		if (!completion && activity.tiers.stream().noneMatch(tier -> wave ? value >= tier.target : value <= tier.target))
+			return;
+		Object result = completion ? "completion" : value;
+		Map<String, Object> diary = new HashMap<>();
+		diary.put("activityId", activity.id);
+		diary.put("value", result);
+		if (wave) diary.put("resultKind", activity.kind);
+		Map<String, Object> details = new HashMap<>();
+		details.put("pvmDiary", diary);
+		details.put("autoSubmit", true);
+		if (record != null)
+		{
+			details.put("record", record);
+			pipeline.capture("diary", activity.id + '|' + result, null, null, details, true);
+			return;
+		}
+		ZweetnekkenModels.Source source = new ZweetnekkenModels.Source();
+		source.type = "raid";
+		source.name = sourceName;
+		pipeline.capture("diary", activity.id + '|' + result, source, null, details, party);
 	}
 
 	private boolean captureArchiveCompletion(String message)
@@ -174,7 +476,11 @@ public class PersonalBestService
 	}
 
 	@Subscribe public void onGameTick(GameTick event)
-	{		if (pendingScoreboard != null) { Scoreboard scoreboard = pendingScoreboard; pendingScoreboard = null; readScoreboard(scoreboard); }
+	{
+		if (pendingCoxCompletion != null
+			&& System.currentTimeMillis() - pendingCoxCompletionAt >= COX_COMPLETION_CONFIRMATION_TIMEOUT_MILLIS)
+			capturePendingCoxCompletion();
+		if (pendingScoreboard != null) { Scoreboard scoreboard = pendingScoreboard; pendingScoreboard = null; readScoreboard(scoreboard); }
 		if (!journalLoaded) return; journalLoaded = false;
 		Widget title = client.getWidget(InterfaceID.Journalscroll.TITLE);
 		String owner = title == null ? null : Text.removeTags(title.getText()).replaceFirst("^The Exploits of ", "").trim();
@@ -259,8 +565,8 @@ public class PersonalBestService
 
 	public void syncAll(boolean force)
 	{
-		if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null) { status = "Log in before syncing PBs"; return; }
-		String profile = configManager.getRSProfileKey(); if (profile == null) { status = "RuneLite profile is unavailable"; return; }
+		if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null) { status = "Log in om PB's te synchroniseren"; return; }
+		String profile = configManager.getRSProfileKey(); if (profile == null) { status = "RuneLite-profiel is niet beschikbaar"; return; }
 		List<ZweetnekkenModels.PbRecord> records = new ArrayList<>();
 		for (String key : configManager.getRSProfileConfigurationKeys(GROUP, profile, ""))
 		{
@@ -268,7 +574,7 @@ public class PersonalBestService
 			if (seconds != null) records.add(pbRecordFromKey(key, seconds));
 		}
 		String fingerprint = fingerprint(records);
-		if (!force && fingerprint.equals(lastFingerprint)) { status = "PBs already up to date"; return; }
+		if (!force && fingerprint.equals(lastFingerprint)) { status = "PB's zijn al bijgewerkt"; return; }
 		lastFingerprint = fingerprint; sync(records, true, false, null);
 	}
 
@@ -282,14 +588,14 @@ public class PersonalBestService
 		if ((!bulk && records.isEmpty()) || client.getLocalPlayer() == null) return;
 		if (fromAdventureLog)
 		{
-			message("Syncing your adventure log with Zweetnekken...");
+			message("Je adventure log synchroniseren met Zweetnekken…");
 		}
 		ZweetnekkenModels.PbBulkRequest request = new ZweetnekkenModels.PbBulkRequest(); request.syncId = UUID.randomUUID().toString(); request.capturedAt = Instant.now().toString();
 		request.player = new ZweetnekkenModels.PlayerIdentity(); request.player.name = client.getLocalPlayer().getName(); request.player.accountHash = String.valueOf(client.getAccountHash()); request.records.addAll(records);
-		status = "Syncing " + records.size() + " PB" + (records.size() == 1 ? "" : "s") + "…";
+		status = records.size() + (records.size() == 1 ? " PB synchroniseren…" : " PB's synchroniseren…");
 		api.syncPbs(request, bulk, result ->
 		{
-			status = result.isSuccessful() ? "PBs synced " + Instant.now() : result.error;
+			status = result.isSuccessful() ? "PB's gesynchroniseerd " + Instant.now() : result.error;
 			if (!result.isSuccessful()) log.error(
 				"Zweetnekken PB sync failed: player={}, syncId={}, error={}", request.player.name, request.syncId, result.error);
 
@@ -299,11 +605,11 @@ public class PersonalBestService
 				{
 					if (result.isSuccessful())
 					{
-						message("Your adventure log has been synced with Zweetnekken.");
+						message("Je adventure log is gesynchroniseerd met Zweetnekken.");
 					}
 					else
 					{
-						message("Zweetnekken queued your adventure log and will retry it automatically.");
+						message("Zweetnekken heeft je adventure log in de wachtrij gezet en probeert het later opnieuw.");
 					}
 				});
 			}
@@ -318,7 +624,17 @@ public class PersonalBestService
 			// A personal-best update is recorded separately from loot or other
 			// evidence submissions.
 			pipeline.capture("personal_best", recordKey(record) + '|' + record.durationMillis, null, null, details, false);
+			captureDiaryEvidence(record);
 		}
+	}
+
+	private void captureDiaryEvidence(ZweetnekkenModels.PbRecord record)
+	{
+		if (record == null || record.durationMillis == null) return;
+		int teamSize = record.teamSize == null ? 1 : record.teamSize;
+		ZweetnekkenModels.PvmDiaryActivity activity = observedDiaryActivity(record.activity, record.variant, teamSize, null);
+		if (activity != null && !"wave".equals(activity.kind))
+			captureDiaryRun(activity, record.durationMillis, null, null, record);
 	}
 
 	private void message(String text)

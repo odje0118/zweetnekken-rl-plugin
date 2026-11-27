@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import okhttp3.CacheControl;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.MediaType;
@@ -35,7 +36,7 @@ public class ZweetnekkenApiClient
 {
 	public static final String ZWEETNEKKEN_API_ORIGIN = "https://api-production-81001.up.railway.app";
 	private static final Logger log = LoggerFactory.getLogger(ZweetnekkenApiClient.class);
-	public static final String PLUGIN_VERSION = "1.1.42";
+	public static final String PLUGIN_VERSION = "1.1.43";
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 	private final OkHttpClient http;
 	private final Gson gson;
@@ -82,6 +83,25 @@ public class ZweetnekkenApiClient
 	public void getProfile(String name, ResultCallback<ZweetnekkenModels.Profile> callback)
 	{
 		get("/api/clan/profile?name=" + encode(name), false, ZweetnekkenModels.Profile.class, callback);
+	}
+
+	public void getClanLeaderboard(ResultCallback<ZweetnekkenModels.ClanLeaderboard> callback)
+	{
+		get("/api/clan/leaderboard", false, ZweetnekkenModels.ClanLeaderboard.class, callback);
+	}
+
+	public void getPvmDiaryConfig(String viewer, ResultCallback<ZweetnekkenModels.PvmDiaryConfig> callback)
+	{
+		Request request = newRequest("/api/runelite/pvm-diary/contract?viewer=" + encode(viewer), true)
+			.cacheControl(CacheControl.FORCE_NETWORK).get().build();
+		execute(request, ZweetnekkenModels.PvmDiaryConfig.class, callback);
+	}
+
+	public void getPvmDiaryStatus(String name, String viewer, ResultCallback<ZweetnekkenModels.PvmDiaryStatus> callback)
+	{
+		Request request = newRequest("/api/pvm-diary/status?rsn=" + encode(name) + "&viewer=" + encode(viewer), true)
+			.cacheControl(CacheControl.FORCE_NETWORK).get().build();
+		execute(request, ZweetnekkenModels.PvmDiaryStatus.class, callback);
 	}
 
 	public void getCompetitions(ResultCallback<ZweetnekkenModels.Competitions> callback)
@@ -140,7 +160,7 @@ public class ZweetnekkenApiClient
 		catch (IOException e)
 		{
 			log.error("Could not read evidence screenshot {}", screenshot, e);
-			callback.complete(ApiResult.error(0, "Could not read evidence screenshot"));
+			callback.complete(ApiResult.error(0, "Bewijsscreenshot kon niet worden gelezen"));
 		}
 	}
 
@@ -224,7 +244,7 @@ public class ZweetnekkenApiClient
 			@Override public void onFailure(Call call, IOException e)
 			{
 				log.error("Zweetnekken API request failed: {} {}", request.method(), request.url().encodedPath(), e);
-				callback.complete(ApiResult.error(0, "Network unavailable"));
+				callback.complete(ApiResult.error(0, "Geen netwerkverbinding"));
 			}
 			@Override public void onResponse(Call call, Response response)
 			{
@@ -246,7 +266,7 @@ public class ZweetnekkenApiClient
 				{
 					log.error("Invalid Zweetnekken API response for {} {} (HTTP {}, content-type {}): {}", request.method(),
 						request.url().encodedPath(), response.code(), response.header("Content-Type"), responsePreview(body), e);
-					callback.complete(ApiResult.error(0, "Invalid server response"));
+					callback.complete(ApiResult.error(0, "Ongeldig antwoord van de server"));
 				}
 			}
 		});
@@ -269,9 +289,9 @@ public class ZweetnekkenApiClient
 	private static String encode(String value) { return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8).replace("+", "%20"); }
 	private static String safeError(int status)
 	{
-		if (status == 401 || status == 403) return "Authentication code is invalid";
-		if (status == 422) return "The server rejected this draft";
-		if (status == 429) return "The server is busy; retry queued";
-		return status >= 500 ? "Zweetnekken is temporarily unavailable" : "Request failed (HTTP " + status + ")";
+		if (status == 401 || status == 403) return "De koppelcode is ongeldig";
+		if (status == 422) return "De server heeft deze inzending afgewezen";
+		if (status == 429) return "De server is bezig; opnieuw proberen staat in de wachtrij";
+		return status >= 500 ? "Zweetnekken is tijdelijk niet beschikbaar" : "Verzoek mislukt (HTTP " + status + ")";
 	}
 }

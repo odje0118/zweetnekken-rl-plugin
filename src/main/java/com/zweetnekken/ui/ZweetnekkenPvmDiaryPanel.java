@@ -116,23 +116,7 @@ final class ZweetnekkenPvmDiaryPanel extends JPanel
 		if (categories.isEmpty()) content.add(cardWithMessage("Er zijn nog geen PvM Diary-categorieën beschikbaar."));
 		for (ZweetnekkenModels.PvmDiaryCategory category : categories)
 		{
-			JPanel row = card();
-			row.setToolTipText("Bekijk " + category.name);
-			JPanel titleRow = new JPanel(new BorderLayout(6, 0));
-			titleRow.setOpaque(false);
-			titleRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-			titleRow.add(text(category.name, true, ZweetnekkenTheme.TEXT), BorderLayout.CENTER);
-			titleRow.add(text("›", true, GOLD), BorderLayout.EAST);
-			titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
-			row.add(titleRow);
-			row.add(Box.createVerticalStrut(7));
-			row.add(pair("Voltooide tiers", category.completedTiers + " / " + category.totalTiers, GREEN));
-			row.add(Box.createVerticalStrut(3));
-			row.add(pair("PvM-punten", number(category.earnedPoints) + " / " + number(category.totalPoints), GOLD));
-			row.add(Box.createVerticalStrut(8));
-			row.add(progress(category.earnedPoints, category.totalPoints, GOLD));
-			makeClickable(row, () -> { selectedCategory = category.name; selectedActivity = null; refresh(); });
-			content.add(row);
+			content.add(categoryCard(category, () -> { selectedCategory = category.name; selectedActivity = null; refresh(); }));
 			content.add(ZweetnekkenPanel.blackDivider(6));
 		}
 	}
@@ -150,28 +134,51 @@ final class ZweetnekkenPvmDiaryPanel extends JPanel
 		if (activities.isEmpty()) content.add(cardWithMessage("Er zijn geen activiteiten in deze categorie."));
 		for (ZweetnekkenModels.PvmDiaryActivity activity : activities)
 		{
-			JPanel row = card();
-			JPanel activityHeading = new JPanel(new BorderLayout());
-			activityHeading.setOpaque(false);
-			activityHeading.setAlignmentX(Component.LEFT_ALIGNMENT);
-			activityHeading.add(text(safe(activity.name), true, ZweetnekkenTheme.TEXT), BorderLayout.WEST);
-			activityHeading.setMaximumSize(new Dimension(Integer.MAX_VALUE, activityHeading.getPreferredSize().height));
-			row.add(activityHeading);
-			row.add(Box.createVerticalStrut(3));
-			String recordLabel = recordLabel(activity.kind);
-			if (recordLabel != null)
-				row.add(pair(recordLabel, recordValue(activity), GREEN));
-			row.add(pair("Punten behaald", number(activity.earnedPoints), ZweetnekkenTheme.BLUE));
-			row.add(Box.createVerticalStrut(7));
-			for (ZweetnekkenModels.PvmDiaryTier tier : activity.tiers)
-			{
-				JPanel tierRow = tierRow(tier);
-				row.add(tierRow);
-				row.add(Box.createVerticalStrut(5));
-			}
-			content.add(row);
+			content.add(activityCard(activity));
 			content.add(ZweetnekkenPanel.blackDivider(6));
 		}
+	}
+
+	static JPanel categoryCard(ZweetnekkenModels.PvmDiaryCategory category, Runnable open)
+	{
+		JPanel row = card();
+		if (open != null)
+		{
+			row.setToolTipText("Bekijk " + category.name);
+			JPanel titleRow = new JPanel(new BorderLayout(6, 0));
+			titleRow.setOpaque(false);
+			titleRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+			titleRow.add(text(category.name, true, ZweetnekkenTheme.TEXT), BorderLayout.CENTER);
+			titleRow.add(text("›", true, GOLD), BorderLayout.EAST);
+			titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
+			row.add(titleRow);
+			row.add(Box.createVerticalStrut(7));
+		}
+		row.add(pair("Voltooide tiers", category.completedTiers + " / " + category.totalTiers, GREEN));
+		row.add(Box.createVerticalStrut(3));
+		row.add(pair("PvM-punten", number(category.earnedPoints) + " / " + number(category.totalPoints), GOLD));
+		row.add(Box.createVerticalStrut(8));
+		row.add(progress(category.earnedPoints, category.totalPoints, GOLD));
+		if (open != null) makeClickable(row, open);
+		return row;
+	}
+
+	static JPanel activityCard(ZweetnekkenModels.PvmDiaryActivity activity)
+	{
+		JPanel row = card();
+		row.add(text(safe(activity.name), true, ZweetnekkenTheme.TEXT));
+		row.add(Box.createVerticalStrut(5));
+		String label = recordLabel(activity.kind);
+		if (label != null)
+			row.add(pair(label, recordValue(activity), GREEN));
+		row.add(pair("Punten behaald", number(activity.earnedPoints), ZweetnekkenTheme.BLUE));
+		if (activity.tiers != null)
+			for (ZweetnekkenModels.PvmDiaryTier tier : activity.tiers)
+			{
+				row.add(Box.createVerticalStrut(5));
+				row.add(tierRow(tier));
+			}
+		return row;
 	}
 
 	private void renderActivity(ZweetnekkenModels.PvmDiaryStatus status, String activityId)
@@ -308,7 +315,7 @@ final class ZweetnekkenPvmDiaryPanel extends JPanel
 			? "Nog geen record" : activity.bestResult.label;
 	}
 
-	private static JPanel pair(String name, String value, Color valueColor)
+	static JPanel pair(String name, String value, Color valueColor)
 	{
 		JPanel row = new JPanel(new BorderLayout(8, 0));
 		row.setOpaque(false);
@@ -345,7 +352,7 @@ final class ZweetnekkenPvmDiaryPanel extends JPanel
 		return button;
 	}
 
-	private static JProgressBar progress(long current, long total, Color color)
+	static JProgressBar progress(long current, long total, Color color)
 	{
 		JProgressBar progress = new JProgressBar(0, 1000);
 		progress.setValue(total <= 0 ? 0 : (int) Math.min(1000, Math.max(0, Math.round(1000d * current / total))));

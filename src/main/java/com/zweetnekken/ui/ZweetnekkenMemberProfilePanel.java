@@ -5,13 +5,9 @@ import com.zweetnekken.service.ZweetnekkenDataService;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -26,20 +22,15 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
-import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
-import javax.swing.KeyStroke;
 
 /** Public roster profile opened from a leaderboard member name. */
 final class ZweetnekkenMemberProfilePanel extends JPanel
@@ -304,17 +295,11 @@ final class ZweetnekkenMemberProfilePanel extends JPanel
 			return card;
 		}
 
-		card.add(diaryStatRow("Points", number(status.earnedPoints) + " / " + number(status.totalPoints), GOLD));
-		card.add(diaryStatRow("Tiers", status.completedTiers + " / " + status.totalTiers, ZweetnekkenTheme.TEXT));
-		JProgressBar progress = new JProgressBar(0, 1000);
-		progress.setValue(status.totalPoints <= 0 ? 0 : (int) Math.min(1000,
-			Math.max(0, status.earnedPoints * 1000L / status.totalPoints)));
-		progress.setBorderPainted(false);
-		progress.setBackground(new Color(52, 55, 58));
-		progress.setForeground(GOLD);
-		progress.setMaximumSize(new Dimension(Integer.MAX_VALUE, 7));
+		card.add(ZweetnekkenPvmDiaryPanel.pair("PvM-punten", number(status.earnedPoints) + " / " + number(status.totalPoints), GOLD));
+		card.add(Box.createVerticalStrut(3));
+		card.add(ZweetnekkenPvmDiaryPanel.pair("Voltooide tiers", status.completedTiers + " / " + status.totalTiers, ZweetnekkenTheme.GREEN));
 		card.add(Box.createVerticalStrut(7));
-		card.add(progress);
+		card.add(ZweetnekkenPvmDiaryPanel.progress(status.earnedPoints, status.totalPoints, GOLD));
 
 		JButton diary = new JButton("Bekijk PvM Diary");
 		diary.setFont(ZweetnekkenTheme.font(false));
@@ -335,32 +320,6 @@ final class ZweetnekkenMemberProfilePanel extends JPanel
 		card.add(Box.createVerticalStrut(8));
 		card.add(diary);
 		return card;
-	}
-
-	private static JPanel diaryStatRow(String name, String value, Color valueColor)
-	{
-		JPanel row = new JPanel(new GridBagLayout());
-		row.setOpaque(false);
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-		JLabel leftLabel = label(name, false, MUTED);
-		GridBagConstraints left = new GridBagConstraints();
-		left.gridx = 0;
-		left.gridy = 0;
-		left.weightx = 1;
-		left.fill = GridBagConstraints.HORIZONTAL;
-		left.anchor = GridBagConstraints.WEST;
-		left.insets = new Insets(0, 0, 0, 6);
-		row.add(leftLabel, left);
-		JLabel rightLabel = label(value, false, valueColor, SwingConstants.RIGHT);
-		GridBagConstraints right = new GridBagConstraints();
-		right.gridx = 1;
-		right.gridy = 0;
-		right.anchor = GridBagConstraints.EAST;
-		row.add(rightLabel, right);
-		int height = row.getPreferredSize().height;
-		row.setMinimumSize(new Dimension(0, height));
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
-		return row;
 	}
 
 	private void renderDiaryPage()
@@ -404,31 +363,14 @@ final class ZweetnekkenMemberProfilePanel extends JPanel
 		for (ZweetnekkenModels.PvmDiaryCategory category : status.categories == null
 			? java.util.Collections.<ZweetnekkenModels.PvmDiaryCategory>emptyList() : status.categories)
 		{
-			JPanel row = ZweetnekkenTheme.surface();
-			row.setBorder(BorderFactory.createCompoundBorder(
-				BorderFactory.createMatteBorder(0, 3, 0, 0, ZweetnekkenTheme.BLUE),
-				BorderFactory.createEmptyBorder(9, 10, 9, 10)));
-			JPanel heading = new JPanel(new BorderLayout(5, 0));
-			heading.setOpaque(false);
-			heading.add(label(category.name, true, ZweetnekkenTheme.TEXT), BorderLayout.WEST);
-			heading.add(label(category.completedTiers + "/" + category.totalTiers, true, GOLD, SwingConstants.RIGHT), BorderLayout.EAST);
-			row.add(heading);
-			row.add(Box.createVerticalStrut(5));
-			row.add(diaryStatRow("Tiers voltooid",
-				category.completedTiers + " / " + category.totalTiers, MUTED));
-			row.add(diaryStatRow("PvM points",
-				number(category.earnedPoints) + " / " + number(category.totalPoints), ZweetnekkenTheme.BLUE));
-			row.add(Box.createVerticalStrut(5));
-			row.add(diaryProgress(category.earnedPoints, category.totalPoints));
-			makeDiaryClickable(row, () -> { diaryCategory = category.name; render(); });
-			content.add(row);
+			content.add(ZweetnekkenPvmDiaryPanel.categoryCard(category, () -> { diaryCategory = category.name; render(); }));
 			content.add(Box.createVerticalStrut(8));
 		}
 	}
 
 	private void renderDiaryCategory(ZweetnekkenModels.PvmDiaryStatus status, String categoryName)
 	{
-		JButton back = diaryBackButton("‹  Alle Diary's");
+		JButton back = diaryBackButton("‹  Alle diaries");
 		back.addActionListener(e -> { diaryCategory = null; render(); });
 		content.add(back);
 		content.add(Box.createVerticalStrut(8));
@@ -441,14 +383,7 @@ final class ZweetnekkenMemberProfilePanel extends JPanel
 			if (candidate.name != null && candidate.name.equalsIgnoreCase(categoryName)) { category = candidate; break; }
 		if (category != null)
 		{
-			JPanel summary = ZweetnekkenTheme.surface();
-			summary.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
-			summary.add(label(category.completedTiers + " / " + category.totalTiers + " tiers voltooid", true, ZweetnekkenTheme.TEXT));
-			summary.add(Box.createVerticalStrut(3));
-			summary.add(label(number(category.earnedPoints) + " / " + number(category.totalPoints) + " PvM points", false, MUTED));
-			summary.add(Box.createVerticalStrut(7));
-			summary.add(diaryProgress(category.earnedPoints, category.totalPoints));
-			content.add(summary);
+			content.add(ZweetnekkenPvmDiaryPanel.categoryCard(category, null));
 			content.add(Box.createVerticalStrut(8));
 		}
 		boolean found = false;
@@ -457,25 +392,10 @@ final class ZweetnekkenMemberProfilePanel extends JPanel
 		{
 			if (activity == null || activity.category == null || !activity.category.equalsIgnoreCase(categoryName)) continue;
 			found = true;
-			JPanel panel = ZweetnekkenTheme.surface();
-			panel.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
-			panel.add(label(value(activity.name), true, ZweetnekkenTheme.TEXT));
-			panel.add(Box.createVerticalStrut(4));
-			String recordLabel = ZweetnekkenPvmDiaryPanel.recordLabel(activity.kind);
-			if (recordLabel != null)
-				panel.add(diaryStatRow(recordLabel, ZweetnekkenPvmDiaryPanel.recordValue(activity), MUTED));
-			panel.add(diaryStatRow("Punten verdiend", number(activity.earnedPoints), MUTED));
-			panel.add(Box.createVerticalStrut(7));
-			for (ZweetnekkenModels.PvmDiaryTier tier : activity.tiers == null
-				? java.util.Collections.<ZweetnekkenModels.PvmDiaryTier>emptyList() : activity.tiers)
-			{
-				panel.add(diaryTierRow(tier));
-				panel.add(Box.createVerticalStrut(5));
-			}
-			content.add(panel);
+			content.add(ZweetnekkenPvmDiaryPanel.activityCard(activity));
 			content.add(Box.createVerticalStrut(8));
 		}
-		if (!found) content.add(messageLabel("There are no activities in this category yet."));
+		if (!found) content.add(messageLabel("Er zijn nog geen activiteiten in deze categorie."));
 	}
 
 	private static JButton diaryBackButton(String text)
@@ -491,67 +411,6 @@ final class ZweetnekkenMemberProfilePanel extends JPanel
 		button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
 		button.setAlignmentX(Component.LEFT_ALIGNMENT);
 		return button;
-	}
-
-	private static JProgressBar diaryProgress(long current, long total)
-	{
-		JProgressBar bar = new JProgressBar(0, 1000);
-		bar.setValue(total <= 0 ? 0 : (int) Math.min(1000, Math.max(0, current * 1000L / total)));
-		bar.setBorderPainted(false);
-		bar.setBackground(new Color(52, 55, 58));
-		bar.setForeground(GOLD);
-		bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 7));
-		return bar;
-	}
-
-	private static JPanel diaryTierRow(ZweetnekkenModels.PvmDiaryTier tier)
-	{
-		JPanel row = new JPanel(new BorderLayout(6, 0));
-		row.setOpaque(true);
-		row.setBackground(tier.completed ? new Color(31, 52, 35) : ZweetnekkenTheme.BACKGROUND);
-		row.setBorder(BorderFactory.createEmptyBorder(8, 9, 8, 9));
-		JPanel left = new JPanel();
-		left.setOpaque(false);
-		left.setLayout(new BoxLayout(left, BoxLayout.Y_AXIS));
-		left.add(label(tier.tier, true, tier.completed ? ZweetnekkenTheme.GREEN : GOLD));
-		left.add(label(tier.targetLabel == null || tier.targetLabel.isBlank()
-			? "Completion" : "completion".equalsIgnoreCase(tier.targetLabel) ? "Completion" : tier.targetLabel,
-			false, MUTED));
-		row.add(left, BorderLayout.CENTER);
-		JPanel right = new JPanel();
-		right.setOpaque(false);
-		right.setLayout(new BoxLayout(right, BoxLayout.Y_AXIS));
-		if (tier.completed) right.add(label("Voltooid", true, ZweetnekkenTheme.GREEN));
-		right.add(label("+" + number(tier.points), true, tier.completed ? ZweetnekkenTheme.GREEN : GOLD));
-		row.add(right, BorderLayout.EAST);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
-	}
-
-	private static void makeDiaryClickable(JPanel panel, Runnable action)
-	{
-		panel.setFocusable(true);
-		panel.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke("ENTER"), "openDiaryCategory");
-		panel.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke("SPACE"), "openDiaryCategory");
-		panel.getActionMap().put("openDiaryCategory", new AbstractAction()
-		{
-			@Override public void actionPerformed(java.awt.event.ActionEvent event) { action.run(); }
-		});
-		makeDiaryClickableRecursive(panel, action);
-	}
-
-	private static void makeDiaryClickableRecursive(Component component, Runnable action)
-	{
-		component.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		component.addMouseListener(new MouseAdapter()
-		{
-			@Override public void mouseClicked(MouseEvent event)
-			{
-				if (event.getButton() == MouseEvent.BUTTON1) action.run();
-			}
-		});
-		if (component instanceof Container)
-			for (Component child : ((Container) component).getComponents()) makeDiaryClickableRecursive(child, action);
 	}
 
 	private JPanel collectionLogCard(ZweetnekkenModels.CollectionLogProgress progress)

@@ -461,8 +461,9 @@ final class ZweetnekkenMemberProfilePanel extends JPanel
 			panel.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
 			panel.add(label(value(activity.name), true, ZweetnekkenTheme.TEXT));
 			panel.add(Box.createVerticalStrut(4));
-			panel.add(diaryStatRow("Best", activity.bestResult == null || activity.bestResult.label == null
-				? "No record yet" : activity.bestResult.label, MUTED));
+			String recordLabel = ZweetnekkenPvmDiaryPanel.recordLabel(activity.kind);
+			if (recordLabel != null)
+				panel.add(diaryStatRow(recordLabel, ZweetnekkenPvmDiaryPanel.recordValue(activity), MUTED));
 			panel.add(diaryStatRow("Punten verdiend", number(activity.earnedPoints), MUTED));
 			panel.add(Box.createVerticalStrut(7));
 			for (ZweetnekkenModels.PvmDiaryTier tier : activity.tiers == null

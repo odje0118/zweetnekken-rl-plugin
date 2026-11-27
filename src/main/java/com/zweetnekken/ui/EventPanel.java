@@ -8,7 +8,6 @@ import javax.swing.Box;
 import javax.swing.JButton;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
-import net.runelite.client.ui.ColorScheme;
 import com.zweetnekken.model.ZweetnekkenModels;
 
 /** Reusable collapsible card for displaying the current event supplied by an event source. */
@@ -23,11 +22,11 @@ final class EventPanel extends JPanel
 	{
 		this.eventSupplier = eventSupplier;
 		setLayout(new javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS));
-		setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		setBorder(javax.swing.BorderFactory.createEmptyBorder(6, 8, 6, 8));
+		setBackground(ZweetnekkenTheme.SURFACE);
+		setBorder(javax.swing.BorderFactory.createEmptyBorder(10, 12, 10, 12));
 		setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		toggle = ZweetnekkenPanel.sectionToggleButton("EVENT", true);
+		toggle = ZweetnekkenPanel.sectionToggleButton("EVENEMENTEN", true);
 		toggle.addActionListener(e -> setExpanded(!expanded));
 		add(toggle);
 		content.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -40,8 +39,8 @@ final class EventPanel extends JPanel
 	{
 		expanded = value;
 		content.setVisible(value);
-		toggle.setText((value ? "▾ " : "▸ ") + "EVENT");
-		toggle.setToolTipText(value ? "Collapse EVENT" : "Expand EVENT");
+		toggle.setText((value ? "▾ " : "▸ ") + "EVENEMENTEN");
+		toggle.setToolTipText(value ? "Evenementen inklappen" : "Evenementen uitklappen");
 		revalidate();
 		repaint();
 	}
@@ -100,6 +99,7 @@ final class EventPanel extends JPanel
 			if (content.getComponentCount() == 0)
 				content.add(ZweetnekkenPanel.muted("Geen actief evenement"));
 		}
+		ZweetnekkenTheme.typography(content);
 		content.revalidate();
 		content.repaint();
 	}

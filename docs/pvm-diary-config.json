@@ -1,0 +1,684 @@
+{
+  "version": 1,
+  "enabled": false,
+  "audience": "testers",
+  "testers": [],
+  "catalogueVersion": "1.1",
+  "categories": [
+    {
+      "name": "COX"
+    },
+    {
+      "name": "COX CM"
+    },
+    {
+      "name": "TOB"
+    },
+    {
+      "name": "TOB HMT"
+    },
+    {
+      "name": "TOA 300"
+    },
+    {
+      "name": "TOA 500"
+    },
+    {
+      "name": "Inferno"
+    },
+    {
+      "name": "Fight Caves"
+    },
+    {
+      "name": "Colosseum"
+    },
+    {
+      "name": "Doom"
+    },
+    {
+      "name": "CG"
+    },
+    {
+      "name": "Test"
+    }
+  ],
+  "activities": [
+    {
+      "id": "cox-solo",
+      "name": "CoX Solo",
+      "category": "COX",
+      "teamSize": 1,
+      "sourceActivity": "Chambers of Xeric",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 1200000,
+          "targetLabel": "20:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 50,
+          "target": 1020000,
+          "targetLabel": "17:00"
+        },
+        {
+          "tier": "Hard",
+          "points": 100,
+          "target": 870000,
+          "targetLabel": "14:30"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "cox-trios",
+      "name": "CoX Trios",
+      "category": "COX",
+      "teamSize": 3,
+      "sourceActivity": "Chambers of Xeric",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 1020000,
+          "targetLabel": "17:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 50,
+          "target": 880000,
+          "targetLabel": "14:40"
+        },
+        {
+          "tier": "Hard",
+          "points": 100,
+          "target": 720000,
+          "targetLabel": "12:00"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "cox-5s",
+      "name": "CoX 5s",
+      "category": "COX",
+      "teamSize": 5,
+      "sourceActivity": "Chambers of Xeric",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 900000,
+          "targetLabel": "15:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 50,
+          "target": 750000,
+          "targetLabel": "12:30"
+        },
+        {
+          "tier": "Hard",
+          "points": 100,
+          "target": 675000,
+          "targetLabel": "11:15"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "cox-cm-solo",
+      "name": "COX CM Solo",
+      "category": "COX CM",
+      "teamSize": 1,
+      "sourceActivity": "Chambers of Xeric",
+      "sourceVariant": "challenge_mode",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 2400000,
+          "targetLabel": "40:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 75,
+          "target": 2310000,
+          "targetLabel": "38:30"
+        },
+        {
+          "tier": "Hard",
+          "points": 125,
+          "target": 1620000,
+          "targetLabel": "27:00"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "cox-cm-trios",
+      "name": "COX CM Trios",
+      "category": "COX CM",
+      "teamSize": 3,
+      "sourceActivity": "Chambers of Xeric",
+      "sourceVariant": "challenge_mode",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 1800000,
+          "targetLabel": "30:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 50,
+          "target": 1620000,
+          "targetLabel": "27:00"
+        },
+        {
+          "tier": "Hard",
+          "points": 100,
+          "target": 1200000,
+          "targetLabel": "20:00"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "cox-cm-5s",
+      "name": "COX CM 5s",
+      "category": "COX CM",
+      "teamSize": 5,
+      "sourceActivity": "Chambers of Xeric",
+      "sourceVariant": "challenge_mode",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 1800000,
+          "targetLabel": "30:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 50,
+          "target": 1500000,
+          "targetLabel": "25:00"
+        },
+        {
+          "tier": "Hard",
+          "points": 100,
+          "target": 1080000,
+          "targetLabel": "18:00"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "tob-solo",
+      "name": "TOB Solo",
+      "category": "TOB",
+      "teamSize": 1,
+      "sourceActivity": "Theatre of Blood",
+      "tiers": [
+        {
+          "tier": "Hard",
+          "points": 90,
+          "targetLabel": "Completion"
+        }
+      ],
+      "kind": "completion"
+    },
+    {
+      "id": "tob-duo",
+      "name": "TOB Duo",
+      "category": "TOB",
+      "teamSize": 2,
+      "sourceActivity": "Theatre of Blood",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 1680000,
+          "targetLabel": "28:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 30,
+          "target": 1560000,
+          "targetLabel": "26:00"
+        },
+        {
+          "tier": "Hard",
+          "points": 60,
+          "target": 1410000,
+          "targetLabel": "23:30"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "tob-trio",
+      "name": "TOB Trio",
+      "category": "TOB",
+      "teamSize": 3,
+      "sourceActivity": "Theatre of Blood",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 1140000,
+          "targetLabel": "19:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 30,
+          "target": 1050000,
+          "targetLabel": "17:30"
+        },
+        {
+          "tier": "Hard",
+          "points": 60,
+          "target": 990000,
+          "targetLabel": "16:30"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "tob-4s",
+      "name": "TOB 4s",
+      "category": "TOB",
+      "teamSize": 4,
+      "sourceActivity": "Theatre of Blood",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 1050000,
+          "targetLabel": "17:30"
+        },
+        {
+          "tier": "Medium",
+          "points": 30,
+          "target": 900000,
+          "targetLabel": "15:00"
+        },
+        {
+          "tier": "Hard",
+          "points": 60,
+          "target": 855000,
+          "targetLabel": "14:15"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "tob-5s",
+      "name": "TOB 5s",
+      "category": "TOB",
+      "teamSize": 5,
+      "sourceActivity": "Theatre of Blood",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 900000,
+          "targetLabel": "15:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 30,
+          "target": 855000,
+          "targetLabel": "14:15"
+        },
+        {
+          "tier": "Hard",
+          "points": 60,
+          "target": 810000,
+          "targetLabel": "13:30"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "hmt-duo",
+      "name": "HMT Duo",
+      "category": "TOB HMT",
+      "teamSize": 2,
+      "sourceActivity": "Theatre of Blood",
+      "sourceVariant": "hard",
+      "tiers": [
+        {
+          "tier": "Medium",
+          "points": 50,
+          "targetLabel": "Completion"
+        }
+      ],
+      "kind": "completion"
+    },
+    {
+      "id": "hmt-trios",
+      "name": "HMT Trios",
+      "category": "TOB HMT",
+      "teamSize": 3,
+      "sourceActivity": "Theatre of Blood",
+      "sourceVariant": "hard",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 1560000,
+          "targetLabel": "26:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 50,
+          "target": 1380000,
+          "targetLabel": "23:00"
+        },
+        {
+          "tier": "Hard",
+          "points": 100,
+          "target": 1200000,
+          "targetLabel": "20:00"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "hmt-4s",
+      "name": "HMT 4s",
+      "category": "TOB HMT",
+      "teamSize": 4,
+      "sourceActivity": "Theatre of Blood",
+      "sourceVariant": "hard",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 1440000,
+          "targetLabel": "24:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 50,
+          "target": 1260000,
+          "targetLabel": "21:00"
+        },
+        {
+          "tier": "Hard",
+          "points": 100,
+          "target": 1020000,
+          "targetLabel": "17:00"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "hmt-5s",
+      "name": "HMT 5s",
+      "category": "TOB HMT",
+      "teamSize": 5,
+      "sourceActivity": "Theatre of Blood",
+      "sourceVariant": "hard",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 1320000,
+          "targetLabel": "22:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 50,
+          "target": 1140000,
+          "targetLabel": "19:00"
+        },
+        {
+          "tier": "Hard",
+          "points": 100,
+          "target": 900000,
+          "targetLabel": "15:00"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "toa-300-solo",
+      "name": "TOA 300 Solo",
+      "category": "TOA 300",
+      "teamSize": 1,
+      "sourceActivity": "Tombs of Amascut",
+      "invocation": 300,
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 1380000,
+          "targetLabel": "23:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 25,
+          "target": 1260000,
+          "targetLabel": "21:00"
+        },
+        {
+          "tier": "Hard",
+          "points": 75,
+          "target": 1140000,
+          "targetLabel": "19:00"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "toa-500-solo",
+      "name": "TOA 500 Solo",
+      "category": "TOA 500",
+      "teamSize": 1,
+      "sourceActivity": "Tombs of Amascut",
+      "invocation": 500,
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 2100000,
+          "targetLabel": "35:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 25,
+          "target": 1800000,
+          "targetLabel": "30:00"
+        },
+        {
+          "tier": "Hard",
+          "points": 75,
+          "target": 1560000,
+          "targetLabel": "26:00"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "inferno-solo",
+      "name": "Inferno",
+      "category": "Inferno",
+      "teamSize": 1,
+      "sourceActivity": "Inferno",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 4800000,
+          "targetLabel": "80:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 100,
+          "target": 3900000,
+          "targetLabel": "65:00"
+        },
+        {
+          "tier": "Hard",
+          "points": 200,
+          "target": 3000000,
+          "targetLabel": "50:00"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "fight-caves-solo",
+      "name": "Fight Caves",
+      "category": "Fight Caves",
+      "teamSize": 1,
+      "sourceActivity": "TzHaar Fight Cave",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 1740000,
+          "targetLabel": "29:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 35,
+          "target": 1590000,
+          "targetLabel": "26:30"
+        },
+        {
+          "tier": "Hard",
+          "points": 65,
+          "target": 1380000,
+          "targetLabel": "23:00"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "colosseum-solo",
+      "name": "Colosseum",
+      "category": "Colosseum",
+      "teamSize": 1,
+      "sourceActivity": "Fortis Colosseum",
+      "chatTemplates": [
+        "Colosseum duration: {time}{rest}",
+        "Fortis Colosseum duration: {time}{rest}"
+      ],
+      "minimumTimeMillis": 300000,
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 1800000,
+          "targetLabel": "30:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 75,
+          "target": 1440000,
+          "targetLabel": "24:00"
+        },
+        {
+          "tier": "Hard",
+          "points": 125,
+          "target": 1080000,
+          "targetLabel": "18:00"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "doom",
+      "name": "Doom",
+      "category": "Doom",
+      "teamSize": 1,
+      "sourceActivity": "Doom of Mokhaiotl",
+      "chatTemplates": [
+        "Level {wave} Complete!",
+        "Delve level {wave} duration: {time}{rest}",
+        "Delve level 8+ ({wave}) duration: {time}{rest}"
+      ],
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 10,
+          "targetLabel": "Wave 10"
+        },
+        {
+          "tier": "Medium",
+          "points": 35,
+          "target": 16,
+          "targetLabel": "Wave 16"
+        },
+        {
+          "tier": "Hard",
+          "points": 65,
+          "target": 40,
+          "targetLabel": "Wave 40"
+        }
+      ],
+      "kind": "wave"
+    },
+    {
+      "id": "cg-solo",
+      "name": "Corrupted Gauntlet",
+      "category": "CG",
+      "teamSize": 1,
+      "sourceActivity": "Corrupted Gauntlet",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 420000,
+          "targetLabel": "7:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 75,
+          "target": 365000,
+          "targetLabel": "6:05"
+        },
+        {
+          "tier": "Hard",
+          "points": 125,
+          "target": 320000,
+          "targetLabel": "5:20"
+        }
+      ],
+      "kind": "time"
+    },
+    {
+      "id": "test-vardorvis",
+      "name": "Vardorvis (test)",
+      "category": "Test",
+      "teamSize": 1,
+      "sourceActivity": "Vardorvis",
+      "tiers": [
+        {
+          "tier": "Easy",
+          "points": 0,
+          "target": 600000,
+          "targetLabel": "10:00"
+        },
+        {
+          "tier": "Medium",
+          "points": 20,
+          "target": 360000,
+          "targetLabel": "6:00"
+        },
+        {
+          "tier": "Hard",
+          "points": 50,
+          "target": 60000,
+          "targetLabel": "1:00"
+        }
+      ],
+      "kind": "time"
+    }
+  ]
+}

@@ -50,7 +50,7 @@ public class EventAlertOverlay extends OverlayPanel
 
 		panelComponent.getChildren().clear();
 		panelComponent.getChildren().add(TitleComponent.builder()
-			.text("Event Alert: " + message)
+			.text("Eventmelding: " + message)
 			.color(textColor)
 			.build());
 		return super.render(graphics);

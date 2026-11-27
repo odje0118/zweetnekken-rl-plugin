@@ -8,6 +8,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
@@ -26,6 +27,10 @@ public class ZweetnekkenDataService
 	@Inject private RulesService rules;
 	private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
 	private volatile ZweetnekkenModels.Profile profile;
+	private volatile ZweetnekkenModels.PvmDiaryStatus pvmDiaryStatus;
+	private volatile ZweetnekkenModels.PvmDiaryConfig pvmDiaryConfig;
+	private final AtomicLong diaryRequest = new AtomicLong();
+	private volatile String pvmDiaryMessage = "Meld aan om je PvM Diary te laden";
 	private volatile ZweetnekkenModels.CompetitionPanels competitionPanels;
 	private volatile BufferedImage profileImage;
 	private volatile BufferedImage botwImage;
@@ -35,7 +40,7 @@ public class ZweetnekkenDataService
 	private volatile long botwImageCompetitionId = Long.MIN_VALUE;
 	private volatile long sotwImageCompetitionId = Long.MIN_VALUE;
 	private volatile Connection connection = Connection.NOT_CONFIGURED;
-	private volatile String message = "Log in to load your Zweetnekken profile";
+	private volatile String message = "Meld je aan om je Zweetnekken-profiel te laden";
 	private volatile String requestedPlayerName;
 	private volatile boolean currentPlayerPluginEligible;
 	private volatile boolean currentPlayerCanSubmitLoot;
@@ -43,6 +48,39 @@ public class ZweetnekkenDataService
 	public void addListener(Runnable listener) { listeners.add(listener); }
 	public void removeListener(Runnable listener) { listeners.remove(listener); }
 	public ZweetnekkenModels.Profile profile() { return profile; }
+	public ZweetnekkenModels.PvmDiaryConfig pvmDiaryConfig()
+	{
+		ZweetnekkenModels.PvmDiaryConfig catalogue = pvmDiaryConfig;
+		return currentPlayerPluginEligible && catalogue != null && PvmDiaryCatalogue.allows(catalogue, requestedPlayerName)
+			? catalogue : null;
+	}
+	public ZweetnekkenModels.PvmDiaryConfig pvmDiaryConfig(String playerName)
+	{
+		ZweetnekkenModels.PvmDiaryConfig catalogue = pvmDiaryConfig();
+		return catalogue != null && PvmDiaryCatalogue.sameRsn(requestedPlayerName, playerName) ? catalogue : null;
+	}
+	public ZweetnekkenModels.PvmDiaryStatus pvmDiaryView() { return pvmDiaryView(pvmDiaryStatus()); }
+	public ZweetnekkenModels.PvmDiaryStatus pvmDiaryView(ZweetnekkenModels.PvmDiaryStatus progress)
+	{
+		return PvmDiaryCatalogue.view(pvmDiaryConfig(), progress);
+	}
+	public boolean isPvmDiaryActivityActive(String playerName, String id)
+	{
+		ZweetnekkenModels.PvmDiaryConfig catalogue = pvmDiaryConfig(playerName);
+		return catalogue != null && catalogue.activities.stream().anyMatch(activity -> activity.id.equals(id));
+	}
+	public ZweetnekkenModels.PvmDiaryStatus pvmDiaryStatus()
+	{
+		ZweetnekkenModels.PvmDiaryConfig catalogue = pvmDiaryConfig();
+		ZweetnekkenModels.PvmDiaryStatus status = pvmDiaryStatus;
+		return catalogue != null && status != null && catalogue.catalogueVersion.equals(status.catalogueVersion)
+			? status : null;
+	}
+	public ZweetnekkenModels.PvmDiaryStatus pvmDiaryStatus(String playerName)
+	{
+		return PvmDiaryCatalogue.sameRsn(requestedPlayerName, playerName) ? pvmDiaryStatus() : null;
+	}
+	public String pvmDiaryMessage() { return pvmDiaryMessage; }
 	public ZweetnekkenModels.CompetitionPanels competitionPanels() { return competitionPanels; }
 	public BufferedImage profileImage() { return profileImage; }
 	public BufferedImage botwImage() { return botwImage; }
@@ -60,12 +98,16 @@ public class ZweetnekkenDataService
 
 	public void loggedOut()
 	{
+		diaryRequest.incrementAndGet();
+		pvmDiaryConfig = null;
 		requestedPlayerName = null;
 		currentPlayerPluginEligible = false;
 				currentPlayerCanSubmitLoot = false;
 		profile = null;
 		profileImage = null;
-		message = "Log in to load your Zweetnekken profile";
+		pvmDiaryStatus = null;
+		pvmDiaryMessage = "Meld aan om je PvM Diary te laden";
+		message = "Meld je aan om je Zweetnekken-profiel te laden";
 		notifyListeners();
 	}
 
@@ -106,13 +148,17 @@ public class ZweetnekkenDataService
 		String requestedName = playerName.trim();
 		if (!samePlayer(requestedPlayerName, requestedName))
 		{
+			diaryRequest.incrementAndGet();
+			pvmDiaryConfig = null;
 			profile = null;
 			profileImage = null;
+			pvmDiaryStatus = null;
+			pvmDiaryMessage = "PvM Diary wordt geladen…";
 			currentPlayerPluginEligible = false;
 			currentPlayerCanSubmitLoot = false;
 		}
 		requestedPlayerName = requestedName;
-		message = "Loading " + requestedName + "…";
+		message = "Profiel van " + requestedName + " laden…";
 		notifyListeners();
 		api.getProfile(requestedName, result ->
 		{
@@ -127,10 +173,11 @@ public class ZweetnekkenDataService
 				currentPlayerPluginEligible = profile.member != null;
 				currentPlayerCanSubmitLoot = currentPlayerPluginEligible && profile.member.canSubmitLoot;
 				message = !currentPlayerPluginEligible
-					? "Not found in Zweetnekken roster"
-					: currentPlayerCanSubmitLoot ? "Profile loaded" : "Trialist — loot submitten is niet beschikbaar";
+					? "Niet gevonden in het Zweetnekken-roster"
+					: currentPlayerCanSubmitLoot ? "Profiel geladen" : "Trialist — loot inzenden is niet beschikbaar";
 				if (currentPlayerPluginEligible)
 				{
+					refreshPvmDiary(requestedName);
 					String avatarPath = profile.member.avatarUrl;
 					String url = resolveProfileImageUrl(avatarPath);
 					if (url == null) url = resolveProfileImageUrl(profileImagePath(requestedName));
@@ -143,17 +190,84 @@ public class ZweetnekkenDataService
 						});
 					}
 				}
-				else profile = null;
+				else
+				{
+					profile = null;
+					clearPvmDiary();
+				}
 			}
 			else
 			{
 				profile = null;
+				clearPvmDiary();
 				currentPlayerPluginEligible = false;
 				currentPlayerCanSubmitLoot = false;
-				message = result.statusCode == 404 ? "Not found in Zweetnekken roster" : result.error;
+				message = result.statusCode == 404 ? "Niet gevonden in het Zweetnekken-roster" : result.error;
 			}
 			notifyListeners();
 		});
+	}
+
+	private void clearPvmDiary()
+	{
+		diaryRequest.incrementAndGet();
+		pvmDiaryConfig = null;
+		pvmDiaryStatus = null;
+		pvmDiaryMessage = "PvM Diary is niet beschikbaar voor dit account";
+	}
+
+	public void refreshPvmDiary(String playerName)
+	{
+		if (!currentPlayerPluginEligible || !PvmDiaryCatalogue.sameRsn(requestedPlayerName, playerName)) return;
+		String code = config.authenticationCode();
+		if (code == null || code.isBlank()) return;
+		long request = diaryRequest.incrementAndGet();
+		api.getPvmDiaryConfig(playerName, result ->
+		{
+			if (request != diaryRequest.get() || !PvmDiaryCatalogue.sameRsn(requestedPlayerName, playerName)) return;
+			ZweetnekkenModels.PvmDiaryConfig catalogue = result.value;
+			if (!result.isSuccessful() || !PvmDiaryCatalogue.isActive(catalogue)
+				|| !PvmDiaryCatalogue.allows(catalogue, playerName))
+			{
+				pvmDiaryConfig = null;
+				pvmDiaryStatus = null;
+				pvmDiaryMessage = catalogue != null && !catalogue.enabled
+					? "PvM Diary staat uit" : "PvM Diary-configuratie is niet beschikbaar";
+				notifyListeners();
+				return;
+			}
+			pvmDiaryMessage = "PvM Diary-voortgang wordt geladen…";
+			pvmDiaryConfig = catalogue;
+			notifyListeners();
+			api.getPvmDiaryStatus(playerName, playerName, status ->
+			{
+				if (request != diaryRequest.get() || !PvmDiaryCatalogue.sameRsn(requestedPlayerName, playerName)) return;
+				pvmDiaryStatus = status.isSuccessful() ? status.value : null;
+				pvmDiaryMessage = pvmDiaryStatus() != null ? "" : status.statusCode == 404
+					? "Er is nog geen PvM Diary-status gepubliceerd voor dit lid"
+					: "PvM Diary-voortgang is niet beschikbaar voor deze catalogus";
+				notifyListeners();
+			});
+		});
+	}
+
+	/** Loads a roster profile for the member-search page without changing active-account permissions. */
+	public void lookupMemberProfile(String playerName,
+		ZweetnekkenApiClient.ResultCallback<ZweetnekkenModels.Profile> callback)
+	{
+		api.getProfile(playerName, callback);
+	}
+
+	/** Loads a member's public PvM Diary without replacing the logged-in player's own diary state. */
+	public void lookupMemberPvmDiary(String playerName,
+		ZweetnekkenApiClient.ResultCallback<ZweetnekkenModels.PvmDiaryStatus> callback)
+	{
+		if (pvmDiaryConfig() == null)
+		{
+			callback.complete(ZweetnekkenApiClient.ApiResult.error(503, "PvM Diary is niet beschikbaar"));
+			return;
+		}
+		api.getPvmDiaryStatus(playerName, requestedPlayerName, callback);
 	}
 
 	private void loadUnauthenticatedCompetitionImages()
@@ -254,6 +368,7 @@ public class ZweetnekkenDataService
 
 	public void validate()
 	{
+		clearPvmDiary();
 		String code = config.authenticationCode() == null ? "" : config.authenticationCode().trim();
 		if (code.isEmpty()) { connection = Connection.NOT_CONFIGURED; notifyListeners(); return; }
 		connection = Connection.CHECKING; notifyListeners();

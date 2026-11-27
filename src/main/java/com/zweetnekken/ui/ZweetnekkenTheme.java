@@ -9,7 +9,7 @@ import javax.swing.BoxLayout;
 import javax.swing.JPanel;
 import net.runelite.client.ui.FontManager;
 
-/** Shared palette and typography copied from the installed The Anchor panel theme. */
+/** Shared colors, typography, and panel styling for Zweetnekken. */
 final class ZweetnekkenTheme
 {
 	static final Color BACKGROUND = new Color(15, 17, 17);
